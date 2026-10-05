@@ -17,7 +17,11 @@ function mockAudio() {
   }> = [];
   const gains: Array<{
     connect: ReturnType<typeof vi.fn>;
-    gain: { value: number; setTargetAtTime: ReturnType<typeof vi.fn> };
+    gain: {
+      value: number;
+      setTargetAtTime: ReturnType<typeof vi.fn>;
+      linearRampToValueAtTime: ReturnType<typeof vi.fn>;
+    };
   }> = [];
   const compressor = {
     threshold: { value: 0 },
@@ -92,22 +96,39 @@ it("precarga el sample y lo reproduce con el mismo bus para notas normales y tra
   }));
   vi.stubGlobal("fetch", fetchMock);
   const piano = new PianoDriver(140, [60]);
-  expect(audio.gains[0].gain.value).toBeCloseTo(1.26);
+  expect(audio.gains[0].gain.value).toBeCloseTo(1.4 ** 1.2);
+  expect(audio.gains[1].gain.value).toBe(0.9);
   expect(audio.gains[0].connect).toHaveBeenCalledWith(audio.compressor);
+  expect(audio.compressor.connect).toHaveBeenCalledWith(audio.gains[1]);
+  expect(audio.compressor.threshold.value).toBe(-4);
+  expect(audio.compressor.ratio.value).toBe(8);
   await piano.ready();
   expect(fetchMock).toHaveBeenCalledTimes(1);
   piano.play(60, 10, 0.2);
   piano.play(60, 11, 0.2);
   expect(audio.buffers).toHaveLength(2);
   expect(audio.oscillators).toHaveLength(0);
-  for (const gain of audio.gains.slice(1))
+  for (const gain of audio.gains.slice(2)) {
     expect(gain.connect).toHaveBeenCalledWith(audio.gains[0]);
+    expect(gain.gain.linearRampToValueAtTime).toHaveBeenCalledWith(
+      1.45,
+      expect.any(Number),
+    );
+  }
   piano.setVolume(200);
   expect(audio.gains[0].gain.setTargetAtTime).toHaveBeenCalledWith(
-    1.8,
+    2 ** 1.2,
     1,
     0.01,
   );
+  piano.setVolume(250);
+  expect(audio.gains[0].gain.setTargetAtTime).toHaveBeenCalledWith(
+    2.5 ** 1.2,
+    1,
+    0.01,
+  );
+  piano.setVolume(0);
+  expect(audio.gains[0].gain.setTargetAtTime).toHaveBeenCalledWith(0, 1, 0.01);
   piano.stopAll();
   for (const source of audio.buffers) {
     expect(source.stop).toHaveBeenLastCalledWith(1);

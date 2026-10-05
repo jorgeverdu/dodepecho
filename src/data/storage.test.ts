@@ -17,13 +17,13 @@ it("persiste rutinas, ejercicios, favoritos y ajustes sin mutar sus copias", asy
   });
   library.exercises[0].favorite = true;
   library.settings.theme = "dark";
-  library.settings.volumePercent = 175;
+  library.settings.volumePercent = 250;
   await saveLibrary(library);
   const loaded = await loadLibrary();
   expect(loaded.routines[0].items[0].bpm).toBe(140);
   expect(loaded.exercises[0].bpm).toBe(85);
   expect(loaded.settings.theme).toBe("dark");
-  expect(loaded.settings.volumePercent).toBe(175);
+  expect(loaded.settings.volumePercent).toBe(250);
   expect(loaded.exercises[0].favorite).toBe(true);
   loaded.exercises[0].bpm = 180;
   await saveLibrary(loaded);

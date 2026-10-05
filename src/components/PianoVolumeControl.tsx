@@ -11,7 +11,7 @@ export function PianoVolumeControl({
       <input
         type="range"
         min="0"
-        max="200"
+        max="250"
         step="1"
         value={value}
         onChange={(event) => onChange(Number(event.target.value))}

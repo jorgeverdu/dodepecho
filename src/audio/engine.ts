@@ -1,7 +1,9 @@
 import { frequency } from "../music/notes";
 import {
-  clampPianoVolumePercent,
   DEFAULT_PIANO_VOLUME_PERCENT,
+  masterGainForVolume,
+  OUTPUT_HEADROOM_GAIN,
+  SAMPLE_VOICE_GAIN,
 } from "./volume";
 import type { MusicalEvent, Timeline } from "./timeline";
 import {
@@ -21,6 +23,7 @@ export class PianoDriver implements AudioDriver {
   private context: AudioContext;
   private master: GainNode;
   private limiter: DynamicsCompressorNode;
+  private output: GainNode;
   private voices = new Set<{
     source: AudioScheduledSourceNode;
     gain: GainNode;
@@ -35,7 +38,9 @@ export class PianoDriver implements AudioDriver {
     this.context = new AudioContext();
     this.master = this.context.createGain();
     this.limiter = this.context.createDynamicsCompressor();
-    this.master.gain.value = this.volumeGain(volumePercent);
+    this.output = this.context.createGain();
+    this.master.gain.value = masterGainForVolume(volumePercent);
+    this.output.gain.value = OUTPUT_HEADROOM_GAIN;
     this.requiredSamples = [
       ...new Map(
         requiredMidi.map((midi) => {
@@ -44,20 +49,18 @@ export class PianoDriver implements AudioDriver {
         }),
       ).values(),
     ];
-    this.limiter.threshold.value = -6;
-    this.limiter.knee.value = 6;
-    this.limiter.ratio.value = 12;
-    this.limiter.attack.value = 0.003;
-    this.limiter.release.value = 0.15;
+    this.limiter.threshold.value = -4;
+    this.limiter.knee.value = 3;
+    this.limiter.ratio.value = 8;
+    this.limiter.attack.value = 0.001;
+    this.limiter.release.value = 0.12;
     this.master.connect(this.limiter);
-    this.limiter.connect(this.context.destination);
-  }
-  private volumeGain(volumePercent: number) {
-    return (0.9 * clampPianoVolumePercent(volumePercent)) / 100;
+    this.limiter.connect(this.output);
+    this.output.connect(this.context.destination);
   }
   setVolume(volumePercent: number) {
     this.master.gain.setTargetAtTime(
-      this.volumeGain(volumePercent),
+      masterGainForVolume(volumePercent),
       this.now(),
       0.01,
     );
@@ -95,8 +98,8 @@ export class PianoDriver implements AudioDriver {
       const attack = Math.min(0.006, duration * 0.25);
       const release = Math.min(0.035, duration * 0.3);
       gain.gain.setValueAtTime(0, at);
-      gain.gain.linearRampToValueAtTime(1, at + attack);
-      gain.gain.setValueAtTime(1, end - release);
+      gain.gain.linearRampToValueAtTime(SAMPLE_VOICE_GAIN, at + attack);
+      gain.gain.setValueAtTime(SAMPLE_VOICE_GAIN, end - release);
       gain.gain.linearRampToValueAtTime(0, end);
       source.connect(gain);
       gain.connect(this.master);
@@ -161,6 +164,7 @@ export class PianoDriver implements AudioDriver {
     this.stopAll();
     this.master.disconnect();
     this.limiter.disconnect();
+    this.output.disconnect();
     void this.context.close();
   }
 }
