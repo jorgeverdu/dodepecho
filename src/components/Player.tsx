@@ -19,14 +19,19 @@ import {
 } from "../audio/engine";
 import { buildTimeline } from "../audio/timeline";
 import { Contour } from "./Contour";
+import { PianoVolumeControl } from "./PianoVolumeControl";
 export function Player({
   items,
   title,
   onClose,
+  volumePercent,
+  onVolumeChange,
 }: {
   items: RoutineItem[];
   title: string;
   onClose: () => void;
+  volumePercent: number;
+  onVolumeChange: (value: number) => void;
 }) {
   const [timeline] = useState(() => buildTimeline(items));
   const [state, setState] = useState<PlayerSnapshot>({
@@ -37,7 +42,9 @@ export function Player({
   });
   const [error, setError] = useState("");
   const engine = useRef<PlaybackEngine | null>(null);
+  const piano = useRef<PianoDriver | null>(null);
   useEffect(() => () => engine.current?.dispose(), []);
+  useEffect(() => piano.current?.setVolume(volumePercent), [volumePercent]);
   useEffect(() => {
     if (state.status !== "playing" || !("wakeLock" in navigator)) return;
     let lock: WakeLockSentinel | undefined,
@@ -63,12 +70,10 @@ export function Player({
   const play = async () => {
     try {
       setError("");
-      if (!engine.current)
-        engine.current = new PlaybackEngine(
-          timeline,
-          new PianoDriver(),
-          setState,
-        );
+      if (!engine.current) {
+        piano.current = new PianoDriver(volumePercent);
+        engine.current = new PlaybackEngine(timeline, piano.current, setState);
+      }
       await engine.current.play();
     } catch {
       setError(
@@ -235,6 +240,7 @@ export function Player({
               <ChevronsRight size={19} /> Siguiente ejercicio
             </button>
           </div>
+          <PianoVolumeControl value={volumePercent} onChange={onVolumeChange} />
           {error && (
             <p role="alert" className="form-error">
               {error}

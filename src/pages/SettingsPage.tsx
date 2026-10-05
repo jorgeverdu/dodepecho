@@ -1,5 +1,6 @@
 import { Monitor, Sun, Moon, Check, WifiOff } from "lucide-react";
 import type { Settings } from "../types";
+import { PianoVolumeControl } from "../components/PianoVolumeControl";
 export function SettingsPage({
   settings,
   onChange,
@@ -29,7 +30,7 @@ export function SettingsPage({
             <button
               className={settings.theme === id ? "selected" : ""}
               key={id}
-              onClick={() => onChange({ theme: id })}
+              onClick={() => onChange({ ...settings, theme: id })}
             >
               <Icon size={22} />
               {label}
@@ -37,6 +38,13 @@ export function SettingsPage({
             </button>
           ))}
         </div>
+      </section>
+      <section className="panel settings-panel">
+        <h2>Audio</h2>
+        <PianoVolumeControl
+          value={settings.volumePercent}
+          onChange={(volumePercent) => onChange({ ...settings, volumePercent })}
+        />
       </section>
       <section className="panel settings-panel">
         <h2>Lleva Dodepecho contigo</h2>

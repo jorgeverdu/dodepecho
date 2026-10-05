@@ -1,4 +1,8 @@
 import { frequency } from "../music/notes";
+import {
+  clampPianoVolumePercent,
+  DEFAULT_PIANO_VOLUME_PERCENT,
+} from "./volume";
 import type { MusicalEvent, Timeline } from "./timeline";
 export interface AudioDriver {
   now(): number;
@@ -9,9 +13,28 @@ export interface AudioDriver {
 }
 export class PianoDriver implements AudioDriver {
   private context: AudioContext;
+  private master: GainNode;
+  private limiter: DynamicsCompressorNode;
   private voices = new Set<{ osc: OscillatorNode; gain: GainNode }>();
-  constructor() {
+  constructor(volumePercent = DEFAULT_PIANO_VOLUME_PERCENT) {
     this.context = new AudioContext();
+    this.master = this.context.createGain();
+    this.limiter = this.context.createDynamicsCompressor();
+    this.master.gain.value = clampPianoVolumePercent(volumePercent) / 100;
+    this.limiter.threshold.value = -6;
+    this.limiter.knee.value = 6;
+    this.limiter.ratio.value = 12;
+    this.limiter.attack.value = 0.003;
+    this.limiter.release.value = 0.15;
+    this.master.connect(this.limiter);
+    this.limiter.connect(this.context.destination);
+  }
+  setVolume(volumePercent: number) {
+    this.master.gain.setTargetAtTime(
+      clampPianoVolumePercent(volumePercent) / 100,
+      this.now(),
+      0.01,
+    );
   }
   now() {
     return this.context.currentTime;
@@ -39,7 +62,7 @@ export class PianoDriver implements AudioDriver {
         at + Math.max(0.035, duration),
       );
       osc.connect(gain);
-      gain.connect(this.context.destination);
+      gain.connect(this.master);
       osc.start(at);
       osc.stop(at + duration + 0.03);
       osc.onended = () => {
@@ -65,6 +88,8 @@ export class PianoDriver implements AudioDriver {
   }
   close() {
     this.stopAll();
+    this.master.disconnect();
+    this.limiter.disconnect();
     void this.context.close();
   }
 }

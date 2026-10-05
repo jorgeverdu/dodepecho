@@ -1,6 +1,7 @@
 import { openDB } from "idb";
 import type { Library } from "../types";
 import { initialLibrary } from "./catalog";
+import { DEFAULT_PIANO_VOLUME_PERCENT } from "../audio/volume";
 const CATALOG_VERSION = 2;
 const database = () =>
   openDB("vocalia", 1, {
@@ -30,9 +31,23 @@ export async function loadLibrary(): Promise<Library> {
             : exercise;
         }),
       };
-      await tx.store.put(library, "state");
       await tx.store.put(CATALOG_VERSION, "catalogVersion");
     }
+    if (library.settings.volumePercent === undefined) {
+      library = {
+        ...library,
+        settings: {
+          ...library.settings,
+          volumePercent: DEFAULT_PIANO_VOLUME_PERCENT,
+        },
+      };
+    }
+    if (
+      !stored ||
+      version < CATALOG_VERSION ||
+      stored.settings.volumePercent === undefined
+    )
+      await tx.store.put(library, "state");
     await tx.done;
     return library;
   } finally {

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   AudioLines,
   Home,
@@ -26,6 +26,8 @@ type Page = "home" | "exercises" | "routines" | "settings";
 type Session = { title: string; items: RoutineItem[] };
 export default function App() {
   const [library, setLibrary] = useState<Library>(initialLibrary);
+  const libraryRef = useRef(library);
+  const saveQueue = useRef(Promise.resolve());
   const [loaded, setLoaded] = useState(false);
   const [storageError, setStorageError] = useState("");
   const [page, setPage] = useState<Page>("home");
@@ -36,6 +38,7 @@ export default function App() {
   useEffect(() => {
     void loadLibrary()
       .then((data) => {
+        libraryRef.current = data;
         setLibrary(data);
         setLoaded(true);
       })
@@ -57,9 +60,13 @@ export default function App() {
     return () => clearTimeout(timer);
   }, [notice]);
   async function persist(next: Library) {
+    libraryRef.current = next;
+    setLibrary(next);
     try {
-      await saveLibrary(next);
-      setLibrary(next);
+      saveQueue.current = saveQueue.current
+        .catch(() => {})
+        .then(() => saveLibrary(next));
+      await saveQueue.current;
       setStorageError("");
       return true;
     } catch {
@@ -68,6 +75,12 @@ export default function App() {
       );
       return false;
     }
+  }
+  function changeSettings(settings: Library["settings"]) {
+    void persist({ ...libraryRef.current, settings });
+  }
+  function changeVolume(volumePercent: number) {
+    changeSettings({ ...libraryRef.current.settings, volumePercent });
   }
   function navigate(next: Page) {
     setPage(next);
@@ -237,7 +250,12 @@ export default function App() {
             </div>
           )}
           {session ? (
-            <Player {...session} onClose={() => setSession(null)} />
+            <Player
+              {...session}
+              onClose={() => setSession(null)}
+              volumePercent={library.settings.volumePercent}
+              onVolumeChange={changeVolume}
+            />
           ) : exercise ? (
             <>
               <ExerciseEditor
@@ -298,7 +316,7 @@ export default function App() {
           ) : (
             <SettingsPage
               settings={library.settings}
-              onChange={(settings) => void persist({ ...library, settings })}
+              onChange={changeSettings}
             />
           )}
         </main>

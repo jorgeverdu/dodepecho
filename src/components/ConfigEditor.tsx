@@ -1,5 +1,6 @@
 import type { ExerciseConfig, Pattern } from "../types";
 import { midiToNote, successionBases, validateConfig } from "../music/notes";
+import { NumericInput } from "./NumericInput";
 const notes = Array.from({ length: 88 }, (_, i) => i + 21);
 export function ConfigEditor({
   value,
@@ -28,12 +29,12 @@ export function ConfigEditor({
         </label>
         <label>
           Tempo · BPM
-          <input
-            type="number"
+          <NumericInput
             min="30"
             max="240"
+            inputMode="numeric"
             value={value.bpm}
-            onChange={(e) => set("bpm", Number(e.target.value))}
+            onValueChange={(number) => set("bpm", number)}
           />
         </label>
         <label>
@@ -84,23 +85,23 @@ export function ConfigEditor({
         </label>
         <label>
           Pausa · tiempos
-          <input
-            type="number"
+          <NumericInput
             min="0"
             max="16"
             step="0.5"
+            inputMode="decimal"
             value={value.pauseBeats}
-            onChange={(e) => set("pauseBeats", Number(e.target.value))}
+            onValueChange={(number) => set("pauseBeats", number)}
           />
         </label>
         <label>
           Paso · semitonos
-          <input
-            type="number"
+          <NumericInput
             min="1"
             max="12"
+            inputMode="numeric"
             value={value.step}
-            onChange={(e) => set("step", Number(e.target.value))}
+            onValueChange={(number) => set("step", number)}
           />
         </label>
       </div>

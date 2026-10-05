@@ -1,5 +1,6 @@
 import type { Exercise, Library } from "../types";
 import { PIANO_ARTICULATION } from "../music/timing";
+import { DEFAULT_PIANO_VOLUME_PERCENT } from "../audio/volume";
 import { makePattern } from "../music/notes";
 const definitions: [string, string, string, number][] = [
   ["Tres notas", "1 2 3 2 1", "MU", 85],
@@ -37,5 +38,9 @@ export function initialLibrary(): Library {
       builtin: true,
     }),
   );
-  return { exercises, routines: [], settings: { theme: "system" } };
+  return {
+    exercises,
+    routines: [],
+    settings: { theme: "system", volumePercent: DEFAULT_PIANO_VOLUME_PERCENT },
+  };
 }

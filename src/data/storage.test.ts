@@ -16,15 +16,48 @@ it("persiste rutinas, ejercicios, favoritos y ajustes sin mutar sus copias", asy
   });
   library.exercises[0].favorite = true;
   library.settings.theme = "dark";
+  library.settings.volumePercent = 175;
   await saveLibrary(library);
   const loaded = await loadLibrary();
   expect(loaded.routines[0].items[0].bpm).toBe(140);
   expect(loaded.exercises[0].bpm).toBe(85);
   expect(loaded.settings.theme).toBe("dark");
+  expect(loaded.settings.volumePercent).toBe(175);
   expect(loaded.exercises[0].favorite).toBe(true);
   loaded.exercises[0].bpm = 180;
   await saveLibrary(loaded);
   expect((await loadLibrary()).routines[0].items[0].bpm).toBe(140);
+});
+
+it("añade volumen a una biblioteca antigua sin perder rutinas ni ejercicios personalizados", async () => {
+  const { openDB } = await import("idb");
+  const { initialLibrary } = await import("./catalog");
+  const legacy = initialLibrary();
+  legacy.settings.theme = "dark";
+  delete (legacy.settings as Partial<typeof legacy.settings>).volumePercent;
+  legacy.exercises[0].favorite = true;
+  legacy.exercises.push({
+    ...structuredClone(legacy.exercises[0]),
+    id: "personal",
+    name: "Mi patrón",
+    bpm: 93,
+    builtin: false,
+  });
+  const item = instantiate(legacy.exercises.at(-1)!);
+  item.bpm = 77;
+  item.pauseBeats = 3.5;
+  legacy.routines = [
+    { id: "old-routine", name: "Mi rutina", items: [item], updatedAt: 42 },
+  ];
+  const db = await openDB("vocalia", 1);
+  await db.put("library", legacy, "state");
+  await db.put("library", 2, "catalogVersion");
+  const migrated = await loadLibrary();
+  expect(migrated.routines).toEqual(legacy.routines);
+  expect(migrated.exercises).toEqual(legacy.exercises);
+  expect(migrated.settings).toEqual({ theme: "dark", volumePercent: 140 });
+  expect(await db.get("library", "state")).toEqual(migrated);
+  db.close();
 });
 
 it("migra una vez los seeds a tempos lentos sin tocar datos personalizados", async () => {
