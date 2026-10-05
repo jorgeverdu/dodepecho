@@ -2,6 +2,7 @@ import { Star, Copy, Plus, Play } from "lucide-react";
 import type { Exercise, RoutineItem } from "../types";
 import { instantiate } from "../types";
 import { midiToNote } from "../music/notes";
+import { firstAudibleNote, rangeExtreme } from "../music/range";
 import { Contour } from "./Contour";
 export interface ExerciseActions {
   openExercise: (value: Exercise) => void;
@@ -46,7 +47,8 @@ export function ExerciseCard({
       </button>
       <div className="card-bottom">
         <span>
-          {midiToNote(value.lower)} — {midiToNote(value.upper)}
+          {midiToNote(firstAudibleNote(value, value.pattern))} —{" "}
+          {midiToNote(rangeExtreme(value))}
         </span>
         <div>
           <button

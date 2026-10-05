@@ -41,6 +41,7 @@ export function Player({
     total: timeline.duration,
   });
   const [error, setError] = useState("");
+  const [preparing, setPreparing] = useState(false);
   const engine = useRef<PlaybackEngine | null>(null);
   const piano = useRef<PianoDriver | null>(null);
   useEffect(() => () => engine.current?.dispose(), []);
@@ -70,8 +71,14 @@ export function Player({
   const play = async () => {
     try {
       setError("");
+      setPreparing(true);
       if (!engine.current) {
-        piano.current = new PianoDriver(volumePercent);
+        piano.current = new PianoDriver(
+          volumePercent,
+          timeline.events.flatMap((event) =>
+            event.midi === null ? [] : [event.midi],
+          ),
+        );
         engine.current = new PlaybackEngine(timeline, piano.current, setState);
       }
       await engine.current.play();
@@ -79,6 +86,8 @@ export function Player({
       setError(
         "No se pudo activar el audio. Pulsa reproducir para intentarlo de nuevo.",
       );
+    } finally {
+      setPreparing(false);
     }
   };
   const seek = (exercise: number, succession: number) => {
@@ -148,17 +157,19 @@ export function Player({
                 )}
               </div>
               <div className="phase-label">
-                {state.status === "ready"
-                  ? "Todo listo para empezar"
-                  : state.status === "paused"
-                    ? "En pausa"
-                    : event.phase === "transition"
-                      ? "Cambio de tonalidad"
-                      : event.phase === "rest"
-                        ? "Pausa entre sucesiones"
-                        : count
-                          ? "Cuenta atrás"
-                          : "Sigue el piano"}
+                {preparing
+                  ? "Preparando piano…"
+                  : state.status === "ready"
+                    ? "Todo listo para empezar"
+                    : state.status === "paused"
+                      ? "En pausa"
+                      : event.phase === "transition"
+                        ? "Cambio de tonalidad"
+                        : event.phase === "rest"
+                          ? "Pausa entre sucesiones"
+                          : count
+                            ? "Cuenta atrás"
+                            : "Sigue el piano"}
               </div>
               <Contour
                 pattern={item.pattern}
@@ -170,11 +181,10 @@ export function Player({
               />
               <div className="tonic-row">
                 <span>
-                  Tónica <strong>{midiToNote(event.base)}</strong>
-                </span>
-                <span>
-                  Sucesión {event.succession + 1} de{" "}
-                  {timeline.bases[event.exercise].length}
+                  Primera nota{" "}
+                  <strong>
+                    {midiToNote(event.base + item.pattern.semitones[0])}
+                  </strong>
                 </span>
               </div>
             </>
@@ -190,9 +200,12 @@ export function Player({
             </button>
             <button
               className="play-button"
+              disabled={preparing}
               onClick={() => (playing ? engine.current?.pause() : void play())}
             >
-              {playing ? (
+              {preparing ? (
+                "Preparando piano…"
+              ) : playing ? (
                 <>
                   <Pause fill="currentColor" size={23} /> Pausa
                 </>

@@ -12,6 +12,7 @@ import {
 import type { Exercise, Routine, RoutineItem } from "../types";
 import { instantiate } from "../types";
 import { midiToNote, validateConfig } from "../music/notes";
+import { firstAudibleNote, rangeExtreme } from "../music/range";
 import { Contour } from "./Contour";
 import { ConfigEditor } from "./ConfigEditor";
 interface Props {
@@ -95,7 +96,8 @@ export function RoutineEditor({
                 <strong>{item.name}</strong>
                 <span>
                   {item.vocalization} · {item.bpm} BPM ·{" "}
-                  {midiToNote(item.lower)}–{midiToNote(item.upper)}
+                  {midiToNote(firstAudibleNote(item, item.pattern))}–
+                  {midiToNote(rangeExtreme(item))}
                 </span>
               </button>
               <div className="item-tools">

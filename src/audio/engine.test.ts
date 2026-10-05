@@ -76,6 +76,21 @@ describe("Reproducción", () => {
     expect(driver.play).not.toHaveBeenCalled();
     engine.dispose();
   });
+  it("espera a que el piano esté cargado antes de iniciar la cuenta atrás", async () => {
+    const { engine, driver } = fixture();
+    let resolve!: () => void;
+    driver.ready = () => new Promise<void>((r) => (resolve = r));
+    const pending = engine.play();
+    await vi.advanceTimersByTimeAsync(5000);
+    expect(engine.snapshot().status).toBe("ready");
+    expect(engine.snapshot().event.count).toBe(3);
+    expect(driver.play).not.toHaveBeenCalled();
+    resolve();
+    await pending;
+    expect(engine.snapshot().status).toBe("playing");
+    expect(engine.snapshot().event.count).toBe(3);
+    engine.dispose();
+  });
   it("termina sin temporizadores ni audio residual", async () => {
     const { engine, active } = fixture();
     await engine.play();

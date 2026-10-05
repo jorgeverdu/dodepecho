@@ -4,6 +4,12 @@ import {
   DEFAULT_PIANO_VOLUME_PERCENT,
 } from "./volume";
 import type { MusicalEvent, Timeline } from "./timeline";
+import {
+  loadSample,
+  nearestSample,
+  samplePlaybackRate,
+  SAMPLE_NOTES,
+} from "./samples";
 export interface AudioDriver {
   now(): number;
   ready(): Promise<void>;
@@ -15,12 +21,29 @@ export class PianoDriver implements AudioDriver {
   private context: AudioContext;
   private master: GainNode;
   private limiter: DynamicsCompressorNode;
-  private voices = new Set<{ osc: OscillatorNode; gain: GainNode }>();
-  constructor(volumePercent = DEFAULT_PIANO_VOLUME_PERCENT) {
+  private voices = new Set<{
+    source: AudioScheduledSourceNode;
+    gain: GainNode;
+    at: number;
+  }>();
+  private buffers = new Map<number, AudioBuffer>();
+  private requiredSamples: (typeof SAMPLE_NOTES)[number][];
+  constructor(
+    volumePercent = DEFAULT_PIANO_VOLUME_PERCENT,
+    requiredMidi: number[] = [],
+  ) {
     this.context = new AudioContext();
     this.master = this.context.createGain();
     this.limiter = this.context.createDynamicsCompressor();
-    this.master.gain.value = clampPianoVolumePercent(volumePercent) / 100;
+    this.master.gain.value = this.volumeGain(volumePercent);
+    this.requiredSamples = [
+      ...new Map(
+        requiredMidi.map((midi) => {
+          const sample = nearestSample(midi);
+          return [sample[0], sample] as const;
+        }),
+      ).values(),
+    ];
     this.limiter.threshold.value = -6;
     this.limiter.knee.value = 6;
     this.limiter.ratio.value = 12;
@@ -29,9 +52,12 @@ export class PianoDriver implements AudioDriver {
     this.master.connect(this.limiter);
     this.limiter.connect(this.context.destination);
   }
+  private volumeGain(volumePercent: number) {
+    return (0.9 * clampPianoVolumePercent(volumePercent)) / 100;
+  }
   setVolume(volumePercent: number) {
     this.master.gain.setTargetAtTime(
-      clampPianoVolumePercent(volumePercent) / 100,
+      this.volumeGain(volumePercent),
       this.now(),
       0.01,
     );
@@ -41,8 +67,56 @@ export class PianoDriver implements AudioDriver {
   }
   async ready() {
     await this.context.resume();
+    const results = await Promise.allSettled(
+      this.requiredSamples.map((sample) => loadSample(this.context, sample)),
+    );
+    results.forEach((result, index) => {
+      if (result.status === "fulfilled")
+        this.buffers.set(this.requiredSamples[index][0], result.value);
+      else
+        console.warn(
+          `No se pudo cargar la muestra ${this.requiredSamples[index][1]}; se usará el sonido de respaldo.`,
+          result.reason,
+        );
+    });
   }
   play(midi: number, at: number, duration: number) {
+    const sample = nearestSample(midi);
+    const buffer = this.buffers.get(sample[0]);
+    if (buffer) {
+      const source = this.context.createBufferSource();
+      const gain = this.context.createGain();
+      const rate = samplePlaybackRate(midi, sample[0]);
+      const voice = { source, gain, at };
+      this.voices.add(voice);
+      source.buffer = buffer;
+      source.playbackRate.value = rate;
+      const end = at + Math.max(0.02, duration);
+      const attack = Math.min(0.006, duration * 0.25);
+      const release = Math.min(0.035, duration * 0.3);
+      gain.gain.setValueAtTime(0, at);
+      gain.gain.linearRampToValueAtTime(1, at + attack);
+      gain.gain.setValueAtTime(1, end - release);
+      gain.gain.linearRampToValueAtTime(0, end);
+      source.connect(gain);
+      gain.connect(this.master);
+      source.start(at);
+      source.stop(end + 0.005);
+      source.onended = () => this.releaseVoice(voice);
+      return;
+    }
+    this.playFallback(midi, at, duration);
+  }
+  private releaseVoice(voice: {
+    source: AudioScheduledSourceNode;
+    gain: GainNode;
+    at: number;
+  }) {
+    voice.source.disconnect();
+    voice.gain.disconnect();
+    this.voices.delete(voice);
+  }
+  private playFallback(midi: number, at: number, duration: number) {
     const frequencyHz = frequency(midi);
     for (const [harmonic, amplitude] of [
       [1, 0.19],
@@ -51,7 +125,7 @@ export class PianoDriver implements AudioDriver {
     ]) {
       const osc = this.context.createOscillator(),
         gain = this.context.createGain();
-      const voice = { osc, gain };
+      const voice = { source: osc, gain, at };
       this.voices.add(voice);
       osc.type = "sine";
       osc.frequency.value = frequencyHz * harmonic;
@@ -65,26 +139,23 @@ export class PianoDriver implements AudioDriver {
       gain.connect(this.master);
       osc.start(at);
       osc.stop(at + duration + 0.03);
-      osc.onended = () => {
-        osc.disconnect();
-        gain.disconnect();
-        this.voices.delete(voice);
-      };
+      osc.onended = () => this.releaseVoice(voice);
     }
   }
   stopAll() {
-    for (const { osc, gain } of this.voices) {
-      gain.gain.cancelScheduledValues(0);
-      gain.gain.setValueAtTime(0, this.now());
+    const now = this.now();
+    for (const voice of this.voices) {
+      const { source, gain, at } = voice;
+      gain.gain.cancelScheduledValues(now);
+      if (at <= now) gain.gain.setTargetAtTime(0, now, 0.003);
+      else gain.gain.setValueAtTime(0, now);
       try {
-        osc.stop();
+        source.stop(at <= now ? now + 0.02 : now);
       } catch {
         /* Voice already ended. */
       }
-      osc.disconnect();
-      gain.disconnect();
+      if (at > now) this.releaseVoice(voice);
     }
-    this.voices.clear();
   }
   close() {
     this.stopAll();

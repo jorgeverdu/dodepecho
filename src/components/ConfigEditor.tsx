@@ -1,5 +1,10 @@
 import type { ExerciseConfig, Pattern } from "../types";
-import { midiToNote, successionBases, validateConfig } from "../music/notes";
+import { midiToNote, validateConfig } from "../music/notes";
+import {
+  firstAudibleNote,
+  rangeExtreme,
+  withAudibleRange,
+} from "../music/range";
 import { NumericInput } from "./NumericInput";
 const notes = Array.from({ length: 88 }, (_, i) => i + 21);
 export function ConfigEditor({
@@ -14,7 +19,17 @@ export function ConfigEditor({
   const set = <K extends keyof ExerciseConfig>(key: K, v: ExerciseConfig[K]) =>
     onChange({ ...value, [key]: v });
   const error = validateConfig(value, pattern);
-  const bases = error ? [] : successionBases(value, pattern);
+  const first = firstAudibleNote(value, pattern);
+  const extreme = rangeExtreme(value);
+  const setRange = (note: number, isFirst: boolean) =>
+    onChange(
+      withAudibleRange(
+        value,
+        pattern,
+        isFirst ? note : first,
+        isFirst ? extreme : note,
+      ),
+    );
   return (
     <div className="config-editor">
       <div className="form-grid">
@@ -49,34 +64,44 @@ export function ConfigEditor({
             <option value="2">Blanca · 2 tiempos</option>
           </select>
         </label>
-        {(
-          [
-            ["start", "Base inicial"],
-            ["lower", "Nota mínima"],
-            ["upper", "Nota máxima"],
-          ] as const
-        ).map(([key, label]) => (
-          <label key={key}>
-            {label}
-            <select
-              value={value[key]}
-              onChange={(e) => set(key, Number(e.target.value))}
-            >
-              {notes.map((n) => (
-                <option key={n} value={n}>
-                  {midiToNote(n)}
-                </option>
-              ))}
-            </select>
-          </label>
-        ))}
+        <label>
+          Primera nota
+          <select
+            value={first}
+            onChange={(e) => setRange(Number(e.target.value), true)}
+          >
+            {notes.map((n) => (
+              <option key={n} value={n}>
+                {midiToNote(n)}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label>
+          {value.direction === "down" ? "Nota más grave" : "Nota más aguda"}
+          <select
+            value={extreme}
+            onChange={(e) => setRange(Number(e.target.value), false)}
+          >
+            {notes.map((n) => (
+              <option key={n} value={n}>
+                {midiToNote(n)}
+              </option>
+            ))}
+          </select>
+        </label>
         <label>
           Dirección
           <select
             value={value.direction}
-            onChange={(e) =>
-              set("direction", e.target.value as ExerciseConfig["direction"])
-            }
+            onChange={(e) => {
+              const direction = e.target.value as ExerciseConfig["direction"];
+              const nextExtreme =
+                direction === "down" ? value.lower : value.upper;
+              onChange(
+                withAudibleRange(value, pattern, first, nextExtreme, direction),
+              );
+            }}
           >
             <option value="up">Ascendente</option>
             <option value="down">Descendente</option>
@@ -105,15 +130,9 @@ export function ConfigEditor({
           />
         </label>
       </div>
-      {error ? (
+      {error && (
         <p className="form-error" role="alert">
           {error}
-        </p>
-      ) : (
-        <p className="form-hint">
-          {bases.length} sucesiones · bases {midiToNote(bases[0])} →{" "}
-          {midiToNote(bases.at(-1)!)}. Todas las notas quedan entre{" "}
-          {midiToNote(value.lower)} y {midiToNote(value.upper)}.
         </p>
       )}
     </div>

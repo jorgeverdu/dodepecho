@@ -45,6 +45,10 @@ export function SettingsPage({
           value={settings.volumePercent}
           onChange={(volumePercent) => onChange({ ...settings, volumePercent })}
         />
+        <p>
+          Salamander Grand Piano · Alexander Holm ·{" "}
+          <a href="https://creativecommons.org/licenses/by/3.0/">CC BY 3.0</a>
+        </p>
       </section>
       <section className="panel settings-panel">
         <h2>Lleva Dodepecho contigo</h2>

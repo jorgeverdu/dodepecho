@@ -2,6 +2,7 @@ import "fake-indexeddb/auto";
 import { it, expect } from "vitest";
 import { loadLibrary, saveLibrary } from "./storage";
 import { instantiate } from "../types";
+import { buildTimeline } from "../audio/timeline";
 it("persiste rutinas, ejercicios, favoritos y ajustes sin mutar sus copias", async () => {
   const library = await loadLibrary();
   const original = library.exercises[0];
@@ -119,4 +120,26 @@ it("incluye 14 tempos de 70 a 90 BPM con escalas y arpegios diferenciados", asyn
   }
   expect(exercises[1].bpm).toBe(80);
   expect(exercises[3].bpm).toBe(75);
+});
+
+it("conserva reproducción de rutina antigua y volumen previamente elegido", async () => {
+  const { initialLibrary } = await import("./catalog");
+  const legacy = initialLibrary();
+  const item = instantiate(legacy.exercises[2]);
+  item.start = 48;
+  item.lower = 48;
+  item.upper = 72;
+  legacy.routines = [
+    { id: "antes-v2", name: "Rutina anterior", items: [item], updatedAt: 7 },
+  ];
+  legacy.settings.volumePercent = 200;
+  const expected = buildTimeline(legacy.routines[0].items);
+  await saveLibrary(legacy);
+  const loaded = await loadLibrary();
+  expect(loaded.routines).toEqual(legacy.routines);
+  expect(loaded.settings.volumePercent).toBe(200);
+  expect(buildTimeline(loaded.routines[0].items)).toEqual(expected);
+  expect(expected.events.find((event) => event.phase === "note")?.midi).toBe(
+    55,
+  );
 });

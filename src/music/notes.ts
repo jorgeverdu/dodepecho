@@ -82,7 +82,7 @@ export function validateConfig(
     return "La articulación debe estar entre 20 % y 100 %.";
   const { min, max } = baseLimits(pattern, config.lower, config.upper);
   if (config.start < min || config.start > max)
-    return "El patrón desde la base inicial sale del rango. Ajusta el inicio o los límites.";
+    return "La primera nota o el patrón salen del rango. Ajusta la primera nota o el límite.";
   return null;
 }
 export function successionBases(
