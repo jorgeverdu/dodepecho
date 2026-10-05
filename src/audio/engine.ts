@@ -1,9 +1,11 @@
 import { frequency } from "../music/notes";
 import {
   DEFAULT_PIANO_VOLUME_PERCENT,
+  LIMITER_INPUT_SCALE,
+  limiterCurve,
   masterGainForVolume,
+  normalizedSampleGain,
   OUTPUT_HEADROOM_GAIN,
-  SAMPLE_VOICE_GAIN,
 } from "./volume";
 import type { MusicalEvent, Timeline } from "./timeline";
 import {
@@ -22,7 +24,8 @@ export interface AudioDriver {
 export class PianoDriver implements AudioDriver {
   private context: AudioContext;
   private master: GainNode;
-  private limiter: DynamicsCompressorNode;
+  private limiterInput: GainNode;
+  private limiter: WaveShaperNode;
   private output: GainNode;
   private voices = new Set<{
     source: AudioScheduledSourceNode;
@@ -30,6 +33,7 @@ export class PianoDriver implements AudioDriver {
     at: number;
   }>();
   private buffers = new Map<number, AudioBuffer>();
+  private sampleGains = new Map<number, number>();
   private requiredSamples: (typeof SAMPLE_NOTES)[number][];
   constructor(
     volumePercent = DEFAULT_PIANO_VOLUME_PERCENT,
@@ -37,9 +41,13 @@ export class PianoDriver implements AudioDriver {
   ) {
     this.context = new AudioContext();
     this.master = this.context.createGain();
-    this.limiter = this.context.createDynamicsCompressor();
+    this.limiterInput = this.context.createGain();
+    this.limiter = this.context.createWaveShaper();
     this.output = this.context.createGain();
     this.master.gain.value = masterGainForVolume(volumePercent);
+    this.limiterInput.gain.value = LIMITER_INPUT_SCALE;
+    this.limiter.curve = limiterCurve();
+    this.limiter.oversample = "2x";
     this.output.gain.value = OUTPUT_HEADROOM_GAIN;
     this.requiredSamples = [
       ...new Map(
@@ -49,12 +57,8 @@ export class PianoDriver implements AudioDriver {
         }),
       ).values(),
     ];
-    this.limiter.threshold.value = -4;
-    this.limiter.knee.value = 3;
-    this.limiter.ratio.value = 8;
-    this.limiter.attack.value = 0.001;
-    this.limiter.release.value = 0.12;
-    this.master.connect(this.limiter);
+    this.master.connect(this.limiterInput);
+    this.limiterInput.connect(this.limiter);
     this.limiter.connect(this.output);
     this.output.connect(this.context.destination);
   }
@@ -74,9 +78,13 @@ export class PianoDriver implements AudioDriver {
       this.requiredSamples.map((sample) => loadSample(this.context, sample)),
     );
     results.forEach((result, index) => {
-      if (result.status === "fulfilled")
+      if (result.status === "fulfilled") {
         this.buffers.set(this.requiredSamples[index][0], result.value);
-      else
+        this.sampleGains.set(
+          this.requiredSamples[index][0],
+          normalizedSampleGain(result.value),
+        );
+      } else
         console.warn(
           `No se pudo cargar la muestra ${this.requiredSamples[index][1]}; se usará el sonido de respaldo.`,
           result.reason,
@@ -90,6 +98,7 @@ export class PianoDriver implements AudioDriver {
       const source = this.context.createBufferSource();
       const gain = this.context.createGain();
       const rate = samplePlaybackRate(midi, sample[0]);
+      const sampleGain = this.sampleGains.get(sample[0]) ?? 0;
       const voice = { source, gain, at };
       this.voices.add(voice);
       source.buffer = buffer;
@@ -98,8 +107,8 @@ export class PianoDriver implements AudioDriver {
       const attack = Math.min(0.006, duration * 0.25);
       const release = Math.min(0.035, duration * 0.3);
       gain.gain.setValueAtTime(0, at);
-      gain.gain.linearRampToValueAtTime(SAMPLE_VOICE_GAIN, at + attack);
-      gain.gain.setValueAtTime(SAMPLE_VOICE_GAIN, end - release);
+      gain.gain.linearRampToValueAtTime(sampleGain, at + attack);
+      gain.gain.setValueAtTime(sampleGain, end - release);
       gain.gain.linearRampToValueAtTime(0, end);
       source.connect(gain);
       gain.connect(this.master);
@@ -163,6 +172,7 @@ export class PianoDriver implements AudioDriver {
   close() {
     this.stopAll();
     this.master.disconnect();
+    this.limiterInput.disconnect();
     this.limiter.disconnect();
     this.output.disconnect();
     void this.context.close();

@@ -1,5 +1,6 @@
 import { afterEach, expect, it, vi } from "vitest";
 import { PianoDriver } from "./engine";
+import { masterGainForVolume } from "./volume";
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -23,12 +24,9 @@ function mockAudio() {
       linearRampToValueAtTime: ReturnType<typeof vi.fn>;
     };
   }> = [];
-  const compressor = {
-    threshold: { value: 0 },
-    knee: { value: 0 },
-    ratio: { value: 0 },
-    attack: { value: 0 },
-    release: { value: 0 },
+  const limiter = {
+    curve: null,
+    oversample: "none",
     connect: vi.fn(),
     disconnect: vi.fn(),
   };
@@ -37,7 +35,14 @@ function mockAudio() {
     destination = {};
     resume = vi.fn();
     close = vi.fn();
-    decodeAudioData = vi.fn(async () => ({ duration: 4 }));
+    decodeAudioData = vi.fn(async () => ({
+      duration: 4,
+      numberOfChannels: 2,
+      getChannelData: (channel: number) =>
+        channel === 0
+          ? new Float32Array([0.1, -0.2])
+          : new Float32Array([0.4, -0.1]),
+    }));
     createBufferSource() {
       const source = {
         buffer: null,
@@ -80,12 +85,12 @@ function mockAudio() {
       gains.push(gain);
       return gain;
     }
-    createDynamicsCompressor() {
-      return compressor;
+    createWaveShaper() {
+      return limiter;
     }
   }
   vi.stubGlobal("AudioContext", Context);
-  return { buffers, oscillators, gains, compressor };
+  return { buffers, oscillators, gains, limiter };
 }
 
 it("precarga el sample y lo reproduce con el mismo bus para notas normales y transiciones", async () => {
@@ -96,34 +101,34 @@ it("precarga el sample y lo reproduce con el mismo bus para notas normales y tra
   }));
   vi.stubGlobal("fetch", fetchMock);
   const piano = new PianoDriver(140, [60]);
-  expect(audio.gains[0].gain.value).toBeCloseTo(1.4 ** 1.2);
-  expect(audio.gains[1].gain.value).toBe(0.9);
-  expect(audio.gains[0].connect).toHaveBeenCalledWith(audio.compressor);
-  expect(audio.compressor.connect).toHaveBeenCalledWith(audio.gains[1]);
-  expect(audio.compressor.threshold.value).toBe(-4);
-  expect(audio.compressor.ratio.value).toBe(8);
+  expect(audio.gains[0].gain.value).toBeCloseTo(masterGainForVolume(140));
+  expect(audio.gains[1].gain.value).toBe(0.125);
+  expect(audio.gains[2].gain.value).toBe(0.96);
+  expect(audio.gains[0].connect).toHaveBeenCalledWith(audio.gains[1]);
+  expect(audio.gains[1].connect).toHaveBeenCalledWith(audio.limiter);
+  expect(audio.limiter.connect).toHaveBeenCalledWith(audio.gains[2]);
+  expect(audio.limiter.oversample).toBe("2x");
   await piano.ready();
   expect(fetchMock).toHaveBeenCalledTimes(1);
   piano.play(60, 10, 0.2);
   piano.play(60, 11, 0.2);
   expect(audio.buffers).toHaveLength(2);
   expect(audio.oscillators).toHaveLength(0);
-  for (const gain of audio.gains.slice(2)) {
+  for (const gain of audio.gains.slice(3)) {
     expect(gain.connect).toHaveBeenCalledWith(audio.gains[0]);
-    expect(gain.gain.linearRampToValueAtTime).toHaveBeenCalledWith(
-      1.45,
-      expect.any(Number),
+    expect(gain.gain.linearRampToValueAtTime.mock.calls[0][0]).toBeCloseTo(
+      0.55 / 0.4,
     );
   }
   piano.setVolume(200);
   expect(audio.gains[0].gain.setTargetAtTime).toHaveBeenCalledWith(
-    2 ** 1.2,
+    masterGainForVolume(200),
     1,
     0.01,
   );
   piano.setVolume(250);
   expect(audio.gains[0].gain.setTargetAtTime).toHaveBeenCalledWith(
-    2.5 ** 1.2,
+    masterGainForVolume(250),
     1,
     0.01,
   );
