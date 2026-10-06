@@ -14,20 +14,20 @@ export function ConfigEditor({
 }: {
   value: ExerciseConfig;
   pattern: Pattern;
-  onChange: (value: ExerciseConfig) => void;
+  onChange: (update: (current: ExerciseConfig) => ExerciseConfig) => void;
 }) {
   const set = <K extends keyof ExerciseConfig>(key: K, v: ExerciseConfig[K]) =>
-    onChange({ ...value, [key]: v });
+    onChange((current) => ({ ...current, [key]: v }));
   const error = validateConfig(value, pattern);
   const first = firstAudibleNote(value, pattern);
   const extreme = rangeExtreme(value);
   const setRange = (note: number, isFirst: boolean) =>
-    onChange(
+    onChange((current) =>
       withAudibleRange(
-        value,
+        current,
         pattern,
-        isFirst ? note : first,
-        isFirst ? extreme : note,
+        isFirst ? note : firstAudibleNote(current, pattern),
+        isFirst ? rangeExtreme(current) : note,
       ),
     );
   return (
@@ -96,11 +96,17 @@ export function ConfigEditor({
             value={value.direction}
             onChange={(e) => {
               const direction = e.target.value as ExerciseConfig["direction"];
-              const nextExtreme =
-                direction === "down" ? value.lower : value.upper;
-              onChange(
-                withAudibleRange(value, pattern, first, nextExtreme, direction),
-              );
+              onChange((current) => {
+                const nextExtreme =
+                  direction === "down" ? current.lower : current.upper;
+                return withAudibleRange(
+                  current,
+                  pattern,
+                  firstAudibleNote(current, pattern),
+                  nextExtreme,
+                  direction,
+                );
+              });
             }}
           >
             <option value="up">Ascendente</option>

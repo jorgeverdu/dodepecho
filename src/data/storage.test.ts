@@ -3,6 +3,7 @@ import { it, expect } from "vitest";
 import { loadLibrary, saveLibrary } from "./storage";
 import { instantiate } from "../types";
 import { buildTimeline } from "../audio/timeline";
+import { updateRoutineItem, upsertRoutine } from "./libraryMutations";
 it("persiste rutinas, ejercicios, favoritos y ajustes sin mutar sus copias", async () => {
   const library = await loadLibrary();
   const original = library.exercises[0];
@@ -142,4 +143,83 @@ it("conserva reproducción de rutina antigua y volumen previamente elegido", asy
   expect(expected.events.find((event) => event.phase === "note")?.midi).toBe(
     55,
   );
+});
+
+it("guarda cambios consecutivos en dos instancias de una rutina existente tras otra escritura", async () => {
+  const { initialLibrary } = await import("./catalog");
+  const { openDB } = await import("idb");
+  const original = initialLibrary();
+  const customExercise = {
+    ...structuredClone(original.exercises[1]),
+    id: "custom-exercise",
+    name: "Mi ejercicio",
+    builtin: false,
+  };
+  original.exercises.push(customExercise);
+  const first = instantiate(original.exercises[1]);
+  const second = instantiate(original.exercises[3]);
+  original.routines = [
+    {
+      id: "existing-routine",
+      name: "Rutina existente",
+      items: [first, second],
+      updatedAt: 1,
+    },
+    {
+      id: "untouched-routine",
+      name: "Otra rutina",
+      items: [instantiate(original.exercises[2])],
+      updatedAt: 1,
+    },
+  ];
+  await saveLibrary(original);
+
+  let draft = structuredClone((await loadLibrary()).routines[0]);
+  draft = updateRoutineItem(draft, first.id, (item) => ({
+    ...item,
+    vocalization: "TEST",
+  }));
+  draft = updateRoutineItem(draft, first.id, (item) => ({
+    ...item,
+    bpm: 137,
+  }));
+  draft = updateRoutineItem(draft, first.id, (item) => ({
+    ...item,
+    pauseBeats: 2.5,
+  }));
+  draft = updateRoutineItem(draft, second.id, (item) => ({
+    ...item,
+    vocalization: "MA",
+    bpm: 91,
+    step: 2,
+  }));
+
+  const latest = await loadLibrary();
+  latest.settings.volumePercent = 200;
+  latest.exercises[0].favorite = true;
+  await saveLibrary(latest);
+  await saveLibrary(upsertRoutine(latest, { ...draft, updatedAt: 2 }));
+
+  const db = await openDB("vocalia", 1);
+  const stored = await db.get("library", "state");
+  expect(stored.routines[0].items[0]).toMatchObject({
+    vocalization: "TEST",
+    bpm: 137,
+    pauseBeats: 2.5,
+  });
+  expect(stored.routines[0].items[1]).toMatchObject({
+    vocalization: "MA",
+    bpm: 91,
+    step: 2,
+  });
+  expect(stored.settings.volumePercent).toBe(200);
+  expect(stored.exercises[0].favorite).toBe(true);
+  expect(stored.exercises.at(-1)).toEqual(customExercise);
+  expect(stored.routines[1]).toEqual(original.routines[1]);
+  db.close();
+
+  const reopened = (await loadLibrary()).routines[0];
+  expect(reopened).toEqual(stored.routines[0]);
+  expect(reopened.items[0].id).toBe(first.id);
+  expect(reopened.items[1].id).toBe(second.id);
 });

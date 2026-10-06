@@ -25,7 +25,10 @@ export function NumericInput({
         onValueChange(parseNumericDraft(raw));
       }}
       onBlur={() => {
-        if (Number.isFinite(value)) setDraft(null);
+        if (draft !== null) {
+          onValueChange(parseNumericDraft(draft));
+          setDraft(null);
+        }
       }}
     />
   );

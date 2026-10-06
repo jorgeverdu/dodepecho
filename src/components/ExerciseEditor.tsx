@@ -1,4 +1,5 @@
 import { ArrowLeft, Copy, Check, Play, Plus } from "lucide-react";
+import type { Dispatch, SetStateAction } from "react";
 import type { Exercise, Routine, RoutineItem } from "../types";
 import { instantiate } from "../types";
 import { validateConfig } from "../music/notes";
@@ -7,7 +8,7 @@ import { ConfigEditor } from "./ConfigEditor";
 import { PatternEditor } from "./PatternEditor";
 interface Props {
   exercise: Exercise;
-  setExercise: (exercise: Exercise) => void;
+  setExercise: Dispatch<SetStateAction<Exercise | null>>;
   library: { routines: Routine[] };
   duplicate: (exercise: Exercise) => void;
   begin: (items: RoutineItem[], title: string) => void;
@@ -56,9 +57,10 @@ export function ExerciseEditor({
               maxLength={80}
               value={exercise.name}
               disabled={exercise.builtin}
-              onChange={(e) =>
-                setExercise({ ...exercise, name: e.target.value })
-              }
+              onChange={(e) => {
+                const name = e.target.value;
+                setExercise((current) => current && { ...current, name });
+              }}
             />
           </label>
           {exercise.builtin ? (
@@ -72,13 +74,19 @@ export function ExerciseEditor({
           ) : (
             <PatternEditor
               value={exercise.pattern}
-              onChange={(pattern) => setExercise({ ...exercise, pattern })}
+              onChange={(pattern) =>
+                setExercise((current) => current && { ...current, pattern })
+              }
             />
           )}
           <ConfigEditor
             value={exercise}
             pattern={exercise.pattern}
-            onChange={(config) => setExercise({ ...exercise, ...config })}
+            onChange={(update) =>
+              setExercise(
+                (current) => current && { ...current, ...update(current) },
+              )
+            }
           />
           {!exercise.builtin && (
             <button

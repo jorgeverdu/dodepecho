@@ -1,4 +1,5 @@
 import { useState } from "react";
+import type { Dispatch, SetStateAction } from "react";
 import {
   ArrowLeft,
   Check,
@@ -13,11 +14,12 @@ import type { Exercise, Routine, RoutineItem } from "../types";
 import { instantiate } from "../types";
 import { midiToNote, validateConfig } from "../music/notes";
 import { firstAudibleNote, rangeExtreme } from "../music/range";
+import { updateRoutineItem } from "../data/libraryMutations";
 import { Contour } from "./Contour";
 import { ConfigEditor } from "./ConfigEditor";
 interface Props {
   routine: Routine;
-  setRoutine: (routine: Routine) => void;
+  setRoutine: Dispatch<SetStateAction<Routine | null>>;
   library: { exercises: Exercise[] };
   onClose: () => void;
   onSave: () => Promise<void>;
@@ -37,16 +39,28 @@ export function RoutineEditor({
     routine.name.trim() &&
     routine.items.length > 0 &&
     routine.items.every((i) => !validateConfig(i, i.pattern));
-  function editItem(id: string, patch: Partial<RoutineItem>) {
-    setRoutine({
-      ...routine,
-      items: routine.items.map((i) => (i.id === id ? { ...i, ...patch } : i)),
-    });
+  function editItem(id: string, update: (item: RoutineItem) => RoutineItem) {
+    setRoutine((current) =>
+      current ? updateRoutineItem(current, id, update) : current,
+    );
   }
-  function moveItem(index: number, delta: number) {
-    const items = [...routine.items];
-    [items[index], items[index + delta]] = [items[index + delta], items[index]];
-    setRoutine({ ...routine, items });
+  function moveItem(id: string, delta: number) {
+    setRoutine((current) => {
+      if (!current) return current;
+      const index = current.items.findIndex((item) => item.id === id);
+      if (
+        index < 0 ||
+        index + delta < 0 ||
+        index + delta >= current.items.length
+      )
+        return current;
+      const items = [...current.items];
+      [items[index], items[index + delta]] = [
+        items[index + delta],
+        items[index],
+      ];
+      return { ...current, items };
+    });
   }
   return (
     <>
@@ -72,7 +86,10 @@ export function RoutineEditor({
           <input
             value={routine.name}
             maxLength={80}
-            onChange={(e) => setRoutine({ ...routine, name: e.target.value })}
+            onChange={(e) => {
+              const name = e.target.value;
+              setRoutine((current) => current && { ...current, name });
+            }}
           />
         </label>
         <p className="form-hint">
@@ -105,7 +122,7 @@ export function RoutineEditor({
                   className="icon-button small-button"
                   aria-label={`Subir ${item.name}`}
                   disabled={i === 0}
-                  onClick={() => moveItem(i, -1)}
+                  onClick={() => moveItem(item.id, -1)}
                 >
                   <ChevronUp size={18} />
                 </button>
@@ -113,7 +130,7 @@ export function RoutineEditor({
                   className="icon-button small-button"
                   aria-label={`Bajar ${item.name}`}
                   disabled={i === routine.items.length - 1}
-                  onClick={() => moveItem(i, 1)}
+                  onClick={() => moveItem(item.id, 1)}
                 >
                   <ChevronDown size={18} />
                 </button>
@@ -125,9 +142,16 @@ export function RoutineEditor({
                       ...structuredClone(item),
                       id: crypto.randomUUID(),
                     };
-                    const items = [...routine.items];
-                    items.splice(i + 1, 0, copy);
-                    setRoutine({ ...routine, items });
+                    setRoutine((current) => {
+                      if (!current) return current;
+                      const items = [...current.items];
+                      const index = items.findIndex(
+                        (entry) => entry.id === item.id,
+                      );
+                      if (index < 0) return current;
+                      items.splice(index + 1, 0, copy);
+                      return { ...current, items };
+                    });
                   }}
                 >
                   <Copy size={17} />
@@ -136,10 +160,15 @@ export function RoutineEditor({
                   className="icon-button small-button"
                   aria-label={`Eliminar ${item.name} de rutina`}
                   onClick={() =>
-                    setRoutine({
-                      ...routine,
-                      items: routine.items.filter((e) => e.id !== item.id),
-                    })
+                    setRoutine(
+                      (current) =>
+                        current && {
+                          ...current,
+                          items: current.items.filter(
+                            (entry) => entry.id !== item.id,
+                          ),
+                        },
+                    )
                   }
                 >
                   <Trash2 size={17} />
@@ -152,7 +181,12 @@ export function RoutineEditor({
                 <ConfigEditor
                   value={item}
                   pattern={item.pattern}
-                  onChange={(config) => editItem(item.id, config)}
+                  onChange={(update) =>
+                    editItem(item.id, (current) => ({
+                      ...current,
+                      ...update(current),
+                    }))
+                  }
                 />
               </div>
             )}
@@ -181,7 +215,13 @@ export function RoutineEditor({
                 className="picker-card"
                 onClick={() => {
                   const item = instantiate(e);
-                  setRoutine({ ...routine, items: [...routine.items, item] });
+                  setRoutine(
+                    (current) =>
+                      current && {
+                        ...current,
+                        items: [...current.items, item],
+                      },
+                  );
                   setExpanded(item.id);
                   setPicker(false);
                 }}

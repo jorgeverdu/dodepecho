@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import type { SetStateAction } from "react";
 import {
   AudioLines,
   Home,
@@ -12,6 +13,7 @@ import type { Exercise, Library, Routine, RoutineItem } from "./types";
 import { instantiate } from "./types";
 import { initialLibrary } from "./data/catalog";
 import { loadLibrary, saveLibrary } from "./data/storage";
+import { upsertRoutine } from "./data/libraryMutations";
 import { validateConfig } from "./music/notes";
 import { ExerciseEditor } from "./components/ExerciseEditor";
 import { RoutineEditor } from "./components/RoutineEditor";
@@ -31,7 +33,8 @@ export default function App() {
   const [loaded, setLoaded] = useState(false);
   const [storageError, setStorageError] = useState("");
   const [page, setPage] = useState<Page>("home");
-  const [routine, setRoutine] = useState<Routine | null>(null);
+  const [routine, setRoutineState] = useState<Routine | null>(null);
+  const routineRef = useRef<Routine | null>(null);
   const [exercise, setExercise] = useState<Exercise | null>(null);
   const [session, setSession] = useState<Session | null>(null);
   const [notice, setNotice] = useState("");
@@ -59,7 +62,14 @@ export default function App() {
     const timer = setTimeout(() => setNotice(""), 3500);
     return () => clearTimeout(timer);
   }, [notice]);
-  async function persist(next: Library) {
+  function setRoutine(update: SetStateAction<Routine | null>) {
+    const next =
+      typeof update === "function" ? update(routineRef.current) : update;
+    routineRef.current = next;
+    setRoutineState(next);
+  }
+  async function persist(update: (current: Library) => Library) {
+    const next = update(libraryRef.current);
     libraryRef.current = next;
     setLibrary(next);
     try {
@@ -77,10 +87,13 @@ export default function App() {
     }
   }
   function changeSettings(settings: Library["settings"]) {
-    void persist({ ...libraryRef.current, settings });
+    void persist((current) => ({ ...current, settings }));
   }
   function changeVolume(volumePercent: number) {
-    changeSettings({ ...libraryRef.current.settings, volumePercent });
+    void persist((current) => ({
+      ...current,
+      settings: { ...current.settings, volumePercent },
+    }));
   }
   function navigate(next: Page) {
     setPage(next);
@@ -110,22 +123,26 @@ export default function App() {
     });
   }
   async function favorite(value: Exercise) {
-    await persist({
-      ...library,
-      exercises: library.exercises.map((e) =>
+    await persist((current) => ({
+      ...current,
+      exercises: current.exercises.map((e) =>
         e.id === value.id ? { ...e, favorite: !e.favorite } : e,
       ),
-    });
+    }));
   }
   async function saveExercise() {
     if (!exercise) return;
-    const found = library.exercises.some((e) => e.id === exercise.id);
     if (
-      await persist({
-        ...library,
-        exercises: found
-          ? library.exercises.map((e) => (e.id === exercise.id ? exercise : e))
-          : [...library.exercises, exercise],
+      await persist((current) => {
+        const found = current.exercises.some((e) => e.id === exercise.id);
+        return {
+          ...current,
+          exercises: found
+            ? current.exercises.map((e) =>
+                e.id === exercise.id ? exercise : e,
+              )
+            : [...current.exercises, exercise],
+        };
       })
     ) {
       setExercise(null);
@@ -133,17 +150,14 @@ export default function App() {
     }
   }
   async function saveRoutine() {
-    if (!routine) return;
-    const value = { ...routine, updatedAt: Date.now() };
-    const found = library.routines.some((r) => r.id === value.id);
-    if (
-      await persist({
-        ...library,
-        routines: found
-          ? library.routines.map((r) => (r.id === value.id ? value : r))
-          : [value, ...library.routines],
-      })
-    ) {
+    const draft = routineRef.current;
+    if (!draft) return;
+    const error = draft.items
+      .map((item) => validateConfig(item, item.pattern))
+      .find(Boolean);
+    if (!draft.name.trim() || !draft.items.length || error) return;
+    const value = { ...draft, updatedAt: Date.now() };
+    if (await persist((current) => upsertRoutine(current, value))) {
       setRoutine(null);
       setNotice("Rutina guardada en este dispositivo");
     }
