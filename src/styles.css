@@ -894,13 +894,24 @@ input[type="range"] {
   margin: 18px 0;
   cursor: pointer;
 }
-.mark-key-control input {
-  margin-top: 4px;
+.mark-key-control input[type="checkbox"] {
+  width: 18px;
+  height: 18px;
+  min-width: 18px;
+  min-height: 18px;
+  padding: 0;
+  margin: 3px 0 0;
+  flex: 0 0 18px;
   accent-color: var(--green);
 }
 .mark-key-control span {
   display: grid;
   gap: 3px;
+  min-width: 0;
+}
+.mark-key-control strong,
+.mark-key-control small {
+  overflow-wrap: anywhere;
 }
 .mark-key-control small,
 .setting-note {
