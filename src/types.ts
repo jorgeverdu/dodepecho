@@ -37,6 +37,7 @@ export interface Routine {
 export interface Settings {
   theme: "system" | "light" | "dark";
   volumePercent: number;
+  markKeyChanges: boolean;
 }
 export interface Library {
   exercises: Exercise[];

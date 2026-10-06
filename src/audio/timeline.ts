@@ -19,7 +19,10 @@ export interface Timeline {
   items: RoutineItem[];
   bases: number[][];
 }
-export function buildTimeline(items: RoutineItem[]): Timeline {
+export function buildTimeline(
+  items: RoutineItem[],
+  markKeyChanges = true,
+): Timeline {
   if (!items.length) throw new Error("Añade un ejercicio a la rutina.");
   const events: MusicalEvent[] = [];
   let at = 0;
@@ -28,19 +31,19 @@ export function buildTimeline(items: RoutineItem[]): Timeline {
     events.push({ ...event, at });
     at += event.duration;
   };
-  for (let count = 3; count >= 1; count--)
-    add({
-      duration: 1,
-      gate: 0,
-      midi: null,
-      exercise: 0,
-      succession: 0,
-      base: bases[0][0],
-      noteIndex: -1,
-      phase: "countdown",
-      count,
-    });
   items.forEach((item, exercise) => {
+    for (let count = 3; count >= 1; count--)
+      add({
+        duration: 1,
+        gate: 0,
+        midi: null,
+        exercise,
+        succession: 0,
+        base: bases[exercise][0],
+        noteIndex: -1,
+        phase: "countdown",
+        count,
+      });
     const beat = 60 / item.bpm;
     bases[exercise].forEach((base, succession) => {
       const common = { exercise, succession, base };
@@ -56,16 +59,26 @@ export function buildTimeline(items: RoutineItem[]): Timeline {
           });
       };
       if (succession > 0) {
-        for (const midi of [bases[exercise][succession - 1], base])
+        if (markKeyChanges) {
+          for (const midi of [bases[exercise][succession - 1], base])
+            add({
+              ...common,
+              duration: beat * 0.5,
+              gate: beat * 0.5 * PIANO_ARTICULATION,
+              midi,
+              noteIndex: -1,
+              phase: "transition",
+            });
+          addPause();
+        } else
           add({
             ...common,
-            duration: beat * 0.5,
-            gate: beat * 0.5 * PIANO_ARTICULATION,
-            midi,
+            duration: 1,
+            gate: 0,
+            midi: null,
             noteIndex: -1,
-            phase: "transition",
+            phase: "rest",
           });
-        addPause();
       }
       patternNotes(base, item.pattern).forEach((midi, noteIndex) =>
         add({
@@ -77,7 +90,7 @@ export function buildTimeline(items: RoutineItem[]): Timeline {
           phase: "note",
         }),
       );
-      addPause();
+      if (succession < bases[exercise].length - 1 && markKeyChanges) addPause();
     });
   });
   return { events, duration: at, items, bases };

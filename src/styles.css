@@ -887,6 +887,26 @@ input[type="range"] {
   max-width: 750px;
   margin-bottom: 24px;
 }
+.mark-key-control {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  margin: 18px 0;
+  cursor: pointer;
+}
+.mark-key-control input {
+  margin-top: 4px;
+  accent-color: var(--green);
+}
+.mark-key-control span {
+  display: grid;
+  gap: 3px;
+}
+.mark-key-control small,
+.setting-note {
+  color: var(--muted);
+  font-size: 0.85rem;
+}
 .settings-panel p {
   color: var(--muted);
   font-size: 0.9rem;

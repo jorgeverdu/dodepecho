@@ -20,20 +20,29 @@ import {
 import { buildTimeline } from "../audio/timeline";
 import { Contour } from "./Contour";
 import { PianoVolumeControl } from "./PianoVolumeControl";
+import { MarkKeyChangesControl } from "./MarkKeyChangesControl";
 export function Player({
   items,
   title,
   onClose,
   volumePercent,
   onVolumeChange,
+  markKeyChanges,
+  onMarkKeyChangesChange,
 }: {
   items: RoutineItem[];
   title: string;
   onClose: () => void;
   volumePercent: number;
   onVolumeChange: (value: number) => void;
+  markKeyChanges: boolean;
+  onMarkKeyChangesChange: (value: boolean) => void;
 }) {
-  const [timeline] = useState(() => buildTimeline(items));
+  const [timeline, setTimeline] = useState(() =>
+    buildTimeline(items, markKeyChanges),
+  );
+  const [practiceMarkKeyChanges, setPracticeMarkKeyChanges] =
+    useState(markKeyChanges);
   const [state, setState] = useState<PlayerSnapshot>({
     status: "ready",
     event: timeline.events[0],
@@ -94,6 +103,25 @@ export function Player({
     void engine.current
       ?.seek(exercise, succession)
       .catch(() => setError("No se pudo reanudar el audio. Pulsa continuar."));
+  };
+  const seekExercise = (exercise: number) => {
+    void engine.current
+      ?.seekExercise(exercise)
+      .catch(() => setError("No se pudo reanudar el audio. Pulsa continuar."));
+  };
+  const changeMarkKeyChanges = (value: boolean) => {
+    onMarkKeyChangesChange(value);
+    if (!engine.current) {
+      const next = buildTimeline(items, value);
+      setTimeline(next);
+      setState({
+        status: "ready",
+        event: next.events[0],
+        elapsed: 0,
+        total: next.duration,
+      });
+      setPracticeMarkKeyChanges(value);
+    }
   };
   const event = state.event,
     item = items[event.exercise],
@@ -237,7 +265,7 @@ export function Player({
             <button
               className="text-button"
               disabled={!engine.current || complete}
-              onClick={() => seek(event.exercise, 0)}
+              onClick={() => seekExercise(event.exercise)}
             >
               <RotateCcw size={17} /> Reiniciar ejercicio
             </button>
@@ -248,12 +276,21 @@ export function Player({
                 complete ||
                 event.exercise === items.length - 1
               }
-              onClick={() => seek(event.exercise + 1, 0)}
+              onClick={() => seekExercise(event.exercise + 1)}
             >
               <ChevronsRight size={19} /> Siguiente ejercicio
             </button>
           </div>
           <PianoVolumeControl value={volumePercent} onChange={onVolumeChange} />
+          <MarkKeyChangesControl
+            value={markKeyChanges}
+            onChange={changeMarkKeyChanges}
+          />
+          {markKeyChanges !== practiceMarkKeyChanges && (
+            <p className="setting-note">
+              El cambio se aplicará en la siguiente práctica.
+            </p>
+          )}
           {error && (
             <p role="alert" className="form-error">
               {error}
@@ -288,8 +325,9 @@ export function Player({
           <div className="practice-tip">
             <p>Tu espacio para cantar</p>
             <span>
-              Escucha la transición del piano antes de empezar la siguiente
-              tonalidad.
+              {practiceMarkKeyChanges
+                ? "Escucha la transición del piano antes de empezar la siguiente tonalidad."
+                : "Toma un segundo de silencio antes de la siguiente tonalidad."}
             </span>
           </div>
         </aside>

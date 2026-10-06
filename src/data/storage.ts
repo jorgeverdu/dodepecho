@@ -42,10 +42,17 @@ export async function loadLibrary(): Promise<Library> {
         },
       };
     }
+    if (library.settings.markKeyChanges === undefined) {
+      library = {
+        ...library,
+        settings: { ...library.settings, markKeyChanges: true },
+      };
+    }
     if (
       !stored ||
       version < CATALOG_VERSION ||
-      stored.settings.volumePercent === undefined
+      stored.settings.volumePercent === undefined ||
+      stored.settings.markKeyChanges === undefined
     )
       await tx.store.put(library, "state");
     await tx.done;

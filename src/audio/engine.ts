@@ -18,6 +18,7 @@ export interface AudioDriver {
   now(): number;
   ready(): Promise<void>;
   play(midi: number, at: number, duration: number): void;
+  click(at: number): void;
   stopAll(): void;
   close(): void;
 }
@@ -118,6 +119,22 @@ export class PianoDriver implements AudioDriver {
       return;
     }
     this.playFallback(midi, at, duration);
+  }
+  click(at: number) {
+    const source = this.context.createOscillator();
+    const gain = this.context.createGain();
+    const voice = { source, gain, at };
+    this.voices.add(voice);
+    source.type = "square";
+    source.frequency.value = 1200;
+    gain.gain.setValueAtTime(0, at);
+    gain.gain.linearRampToValueAtTime(0.075, at + 0.002);
+    gain.gain.exponentialRampToValueAtTime(0.001, at + 0.045);
+    source.connect(gain);
+    gain.connect(this.limiterInput);
+    source.start(at);
+    source.stop(at + 0.05);
+    source.onended = () => this.releaseVoice(voice);
   }
   private releaseVoice(voice: {
     source: AudioScheduledSourceNode;
@@ -260,6 +277,8 @@ export class PlaybackEngine {
       // A throttled tab must never play a backlog of expired notes together.
       if (e.midi !== null && remaining > 0)
         this.driver.play(e.midi, Math.max(now, startsAt), remaining);
+      else if (e.phase === "countdown" && startsAt + 0.05 > now)
+        this.driver.click(Math.max(now, startsAt));
     }
     this.emit();
     this.timer = setTimeout(this.tick, 25);
@@ -269,18 +288,30 @@ export class PlaybackEngine {
     this.generation++;
     clearTimeout(this.timer);
     this.driver.stopAll();
-    this.offset = state.event.at;
+    // Keep an already-heard countdown click from firing again on resume.
+    this.offset =
+      state.event.phase === "countdown" ? state.elapsed : state.event.at;
     this.status = "paused";
     this.emit();
   }
   async seek(exercise: number, succession: number) {
+    await this.seekTo(exercise, succession, "note");
+  }
+  async seekExercise(exercise: number) {
+    await this.seekTo(exercise, 0, "countdown");
+  }
+  private async seekTo(
+    exercise: number,
+    succession: number,
+    phase: "note" | "countdown",
+  ) {
     const wasPlaying = this.status === "playing";
     this.pause();
     const target = this.timeline.events.find(
       (e) =>
         e.exercise === exercise &&
         e.succession === succession &&
-        e.phase === "note",
+        e.phase === phase,
     );
     if (target) this.offset = target.at;
     this.emit();

@@ -57,8 +57,43 @@ it("añade volumen a una biblioteca antigua sin perder rutinas ni ejercicios per
   const migrated = await loadLibrary();
   expect(migrated.routines).toEqual(legacy.routines);
   expect(migrated.exercises).toEqual(legacy.exercises);
-  expect(migrated.settings).toEqual({ theme: "dark", volumePercent: 140 });
+  expect(migrated.settings).toEqual({
+    theme: "dark",
+    volumePercent: 140,
+    markKeyChanges: true,
+  });
   expect(await db.get("library", "state")).toEqual(migrated);
+  db.close();
+});
+it("añade el ajuste global a datos antiguos sin modificar rutinas ni favoritos", async () => {
+  const { openDB } = await import("idb");
+  const { initialLibrary } = await import("./catalog");
+  const old = initialLibrary();
+  delete (old.settings as Partial<typeof old.settings>).markKeyChanges;
+  old.settings.volumePercent = 250;
+  old.exercises[0].favorite = true;
+  old.exercises.push({
+    ...old.exercises[0],
+    id: "custom-mark",
+    builtin: false,
+  });
+  old.routines.push({
+    id: "routine-mark",
+    name: "Guardada",
+    items: [instantiate(old.exercises.at(-1)!)],
+    updatedAt: 4,
+  });
+  const before = structuredClone(old);
+  const db = await openDB("vocalia", 1);
+  await db.put("library", old, "state");
+  await db.put("library", 2, "catalogVersion");
+  const loaded = await loadLibrary();
+  expect(loaded.settings).toEqual({ ...before.settings, markKeyChanges: true });
+  expect(loaded.routines).toEqual(before.routines);
+  expect(loaded.exercises).toEqual(before.exercises);
+  loaded.settings.markKeyChanges = false;
+  await saveLibrary(loaded);
+  expect((await loadLibrary()).settings.markKeyChanges).toBe(false);
   db.close();
 });
 

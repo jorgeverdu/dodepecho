@@ -1,6 +1,7 @@
 import { Monitor, Sun, Moon, Check, WifiOff } from "lucide-react";
 import type { Settings } from "../types";
 import { PianoVolumeControl } from "../components/PianoVolumeControl";
+import { MarkKeyChangesControl } from "../components/MarkKeyChangesControl";
 export function SettingsPage({
   settings,
   onChange,
@@ -44,6 +45,12 @@ export function SettingsPage({
         <PianoVolumeControl
           value={settings.volumePercent}
           onChange={(volumePercent) => onChange({ ...settings, volumePercent })}
+        />
+        <MarkKeyChangesControl
+          value={settings.markKeyChanges}
+          onChange={(markKeyChanges) =>
+            onChange({ ...settings, markKeyChanges })
+          }
         />
         <p>
           Salamander Grand Piano · Alexander Holm ·{" "}

@@ -95,6 +95,12 @@ export default function App() {
       settings: { ...current.settings, volumePercent },
     }));
   }
+  function changeMarkKeyChanges(markKeyChanges: boolean) {
+    void persist((current) => ({
+      ...current,
+      settings: { ...current.settings, markKeyChanges },
+    }));
+  }
   function navigate(next: Page) {
     setPage(next);
     setRoutine(null);
@@ -269,6 +275,8 @@ export default function App() {
               onClose={() => setSession(null)}
               volumePercent={library.settings.volumePercent}
               onVolumeChange={changeVolume}
+              markKeyChanges={library.settings.markKeyChanges}
+              onMarkKeyChangesChange={changeMarkKeyChanges}
             />
           ) : exercise ? (
             <>

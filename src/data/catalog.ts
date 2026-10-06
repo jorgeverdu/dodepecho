@@ -41,6 +41,10 @@ export function initialLibrary(): Library {
   return {
     exercises,
     routines: [],
-    settings: { theme: "system", volumePercent: DEFAULT_PIANO_VOLUME_PERCENT },
+    settings: {
+      theme: "system",
+      volumePercent: DEFAULT_PIANO_VOLUME_PERCENT,
+      markKeyChanges: true,
+    },
   };
 }

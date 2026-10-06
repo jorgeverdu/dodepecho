@@ -93,3 +93,33 @@ describe("Pausa a ambos lados de cada transición", () => {
     }
   });
 });
+describe("Cuenta atrás y cambios de tonalidad configurables", () => {
+  it("no deja transición ni pausa extra al pasar de ejercicio", () => {
+    const first = { ...item("up"), upper: 52 };
+    const second = { ...item("up"), upper: 52 };
+    const { events } = buildTimeline([first, second]);
+    const boundary = events.findIndex((e) => e.exercise === 1);
+    expect(
+      events.slice(boundary - 1, boundary + 4).map((e) => e.phase),
+    ).toEqual(["note", "countdown", "countdown", "countdown", "note"]);
+    expect(events.slice(boundary, boundary + 3).map((e) => e.count)).toEqual([
+      3, 2, 1,
+    ]);
+  });
+  it.each([70, 80, 90])("apagado: un solo segundo de pausa a %i BPM", (bpm) => {
+    const { events } = buildTimeline([{ ...item("up", 4), bpm }], false);
+    expect(events.some((e) => e.phase === "transition")).toBe(false);
+    for (let i = 0; i < events.length; i++) {
+      if (events[i].phase !== "rest") continue;
+      expect(events[i].duration).toBe(1);
+      expect(events[i - 1].phase).toBe("note");
+      expect(events[i + 1].phase).toBe("note");
+      expect(
+        events[i + 1].at - (events[i - 1].at + events[i - 1].duration),
+      ).toBeCloseTo(1);
+    }
+    expect(events.filter((e) => e.phase === "rest")).toHaveLength(
+      events.filter((e) => e.phase === "note" && e.noteIndex === 0).length - 1,
+    );
+  });
+});

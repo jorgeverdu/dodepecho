@@ -11,6 +11,7 @@ function fixture(overrides: Partial<RoutineItem> = {}) {
     now: () => Date.now() / 1000,
     ready: async () => {},
     play: vi.fn((m) => active.push(m)),
+    click: vi.fn(() => active.push(-1)),
     stopAll: vi.fn(() => active.splice(0)),
     close: vi.fn(() => active.splice(0)),
   };
@@ -25,6 +26,20 @@ function fixture(overrides: Partial<RoutineItem> = {}) {
     driver,
     active,
     timeline,
+  };
+}
+function twoExerciseFixture() {
+  const result = fixture();
+  const items = [
+    result.timeline.items[0],
+    instantiate(initialLibrary().exercises[0]),
+  ];
+  items[1].upper = 52;
+  const timeline = buildTimeline(items);
+  return {
+    timeline,
+    driver: result.driver,
+    engine: new PlaybackEngine(timeline, result.driver, vi.fn()),
   };
 }
 describe("Reproducción", () => {
@@ -98,6 +113,53 @@ describe("Reproducción", () => {
     expect(engine.snapshot().status).toBe("complete");
     expect(active).toHaveLength(0);
     expect(vi.getTimerCount()).toBe(0);
+    engine.dispose();
+  });
+  it("programa tres clicks sincronizados con 3-2-1 antes de ambos ejercicios", async () => {
+    const { engine, driver, timeline } = twoExerciseFixture();
+    const countdowns = timeline.events.filter((e) => e.phase === "countdown");
+    expect(countdowns.map((e) => [e.exercise, e.count])).toEqual([
+      [0, 3],
+      [0, 2],
+      [0, 1],
+      [1, 3],
+      [1, 2],
+      [1, 1],
+    ]);
+    const origin = driver.now() + 0.06;
+    await engine.play();
+    await vi.advanceTimersByTimeAsync((timeline.duration + 0.2) * 1000);
+    expect(
+      vi.mocked(driver.click).mock.calls.map(([at]) => at - origin),
+    ).toEqual(countdowns.map((event) => expect.closeTo(event.at, 5)));
+    engine.dispose();
+  });
+  it("reiniciar y siguiente ejercicio vuelven a 3; saltar sucesiones no", async () => {
+    const { engine, driver } = twoExerciseFixture();
+    await engine.play();
+    await vi.advanceTimersByTimeAsync(3200);
+    vi.mocked(driver.click).mockClear();
+    await engine.seek(0, 1);
+    await vi.advanceTimersByTimeAsync(100);
+    expect(driver.click).not.toHaveBeenCalled();
+    await engine.seek(0, 0);
+    await vi.advanceTimersByTimeAsync(100);
+    expect(driver.click).not.toHaveBeenCalled();
+    await engine.seekExercise(0);
+    expect(engine.snapshot().event.count).toBe(3);
+    await vi.advanceTimersByTimeAsync(100);
+    expect(driver.click).toHaveBeenCalledTimes(1);
+    vi.mocked(driver.click).mockClear();
+    await engine.seekExercise(1);
+    await vi.advanceTimersByTimeAsync(100);
+    expect(engine.snapshot().event.count).toBe(3);
+    expect(driver.click).toHaveBeenCalledTimes(1);
+    engine.pause();
+    vi.mocked(driver.click).mockClear();
+    await engine.play();
+    await vi.advanceTimersByTimeAsync(100);
+    expect(engine.snapshot().event.count).toBe(3);
+    expect(driver.click).not.toHaveBeenCalled();
     engine.dispose();
   });
 });
