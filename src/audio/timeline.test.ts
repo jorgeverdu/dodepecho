@@ -2,6 +2,11 @@ import { describe, expect, it } from "vitest";
 import { buildTimeline } from "./timeline";
 import { initialLibrary } from "../data/catalog";
 import { instantiate, type Direction } from "../types";
+import {
+  LEGATO_ARTICULATION,
+  STACCATO_ARTICULATION,
+  articulationLabel,
+} from "../music/timing";
 
 function item(direction: Direction, pauseBeats = 2) {
   return {
@@ -85,12 +90,52 @@ describe("Pausa a ambos lados de cada transición", () => {
     ]);
   });
 
-  it("las notas usan siempre el 88 %, incluso con articulación antigua guardada", () => {
-    for (const articulation of [0.2, 0.8, 1]) {
-      const { events } = buildTimeline([{ ...item("up"), articulation }]);
-      for (const event of events.filter((e) => e.midi !== null))
-        expect(event.gate).toBeCloseTo(event.duration * 0.88);
+  it("Legato y Staccato mantienen los ataques, pero cambian solo el gate del patrón", () => {
+    const config = item("up");
+    const legato = buildTimeline([
+      { ...config, articulation: LEGATO_ARTICULATION },
+    ]);
+    const staccato = buildTimeline([
+      { ...config, articulation: STACCATO_ARTICULATION },
+    ]);
+    expect(legato.duration).toBe(staccato.duration);
+    expect(
+      legato.events.map((event) => [event.at, event.duration, event.phase]),
+    ).toEqual(
+      staccato.events.map((event) => [event.at, event.duration, event.phase]),
+    );
+    for (let i = 0; i < legato.events.length; i++) {
+      const long = legato.events[i],
+        short = staccato.events[i];
+      if (long.phase === "note") {
+        expect(long.gate).toBeCloseTo(long.duration * 1.05);
+        expect(short.gate).toBeCloseTo(short.duration * 0.45);
+        expect(long.at + long.gate).toBeGreaterThan(long.at + long.duration);
+        expect(short.at + short.gate).toBeLessThan(short.at + short.duration);
+      } else expect(long.gate).toBe(short.gate);
     }
+    expect(
+      legato.events.filter((e) => e.phase === "transition").map((e) => e.gate),
+    ).toEqual(
+      staccato.events
+        .filter((e) => e.phase === "transition")
+        .map((e) => e.gate),
+    );
+    expect(
+      legato.events
+        .filter((e) => e.phase === "countdown")
+        .every((e) => e.gate === 0),
+    ).toBe(true);
+  });
+
+  it("interpreta la articulación antigua 0.88 como Legato sin cambiar el dato", () => {
+    const old = { ...item("up"), articulation: 0.88 };
+    const { events } = buildTimeline([old]);
+    expect(articulationLabel(old.articulation)).toBe("Legato");
+    expect(events.find((e) => e.phase === "note")!.gate).toBeCloseTo(
+      events.find((e) => e.phase === "note")!.duration * LEGATO_ARTICULATION,
+    );
+    expect(old.articulation).toBe(0.88);
   });
 });
 describe("Cuenta atrás y cambios de tonalidad configurables", () => {

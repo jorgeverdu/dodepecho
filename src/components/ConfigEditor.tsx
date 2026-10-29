@@ -6,6 +6,11 @@ import {
   withAudibleRange,
 } from "../music/range";
 import { NumericInput } from "./NumericInput";
+import {
+  articulationMode,
+  LEGATO_ARTICULATION,
+  STACCATO_ARTICULATION,
+} from "../music/timing";
 const notes = Array.from({ length: 88 }, (_, i) => i + 21);
 export function ConfigEditor({
   value,
@@ -62,6 +67,23 @@ export function ConfigEditor({
             <option value="0.5">Corchea · ½ tiempo</option>
             <option value="1">Negra · 1 tiempo</option>
             <option value="2">Blanca · 2 tiempos</option>
+          </select>
+        </label>
+        <label>
+          Articulación
+          <select
+            value={articulationMode(value.articulation)}
+            onChange={(e) =>
+              set(
+                "articulation",
+                e.target.value === "legato"
+                  ? LEGATO_ARTICULATION
+                  : STACCATO_ARTICULATION,
+              )
+            }
+          >
+            <option value="legato">Legato</option>
+            <option value="staccato">Staccato</option>
           </select>
         </label>
         <label>

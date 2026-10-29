@@ -4,6 +4,7 @@ import { loadLibrary, saveLibrary } from "./storage";
 import { instantiate } from "../types";
 import { buildTimeline } from "../audio/timeline";
 import { updateRoutineItem, upsertRoutine } from "./libraryMutations";
+import { LEGATO_ARTICULATION, STACCATO_ARTICULATION } from "../music/timing";
 it("persiste rutinas, ejercicios, favoritos y ajustes sin mutar sus copias", async () => {
   const library = await loadLibrary();
   const original = library.exercises[0];
@@ -169,15 +170,43 @@ it("conserva reproducción de rutina antigua y volumen previamente elegido", asy
     { id: "antes-v2", name: "Rutina anterior", items: [item], updatedAt: 7 },
   ];
   legacy.settings.volumePercent = 200;
+  legacy.routines[0].items[0].articulation = 0.88;
   const expected = buildTimeline(legacy.routines[0].items);
   await saveLibrary(legacy);
   const loaded = await loadLibrary();
   expect(loaded.routines).toEqual(legacy.routines);
+  expect(loaded.routines[0].items[0].articulation).toBe(0.88);
+  expect(
+    expected.events.find((event) => event.phase === "note")!.gate,
+  ).toBeCloseTo(
+    expected.events.find((event) => event.phase === "note")!.duration *
+      LEGATO_ARTICULATION,
+  );
   expect(loaded.settings.volumePercent).toBe(200);
   expect(buildTimeline(loaded.routines[0].items)).toEqual(expected);
   expect(expected.events.find((event) => event.phase === "note")?.midi).toBe(
     55,
   );
+});
+
+it("guarda y reabre la articulación de una instancia sin cambiar el ejercicio original", async () => {
+  const { initialLibrary } = await import("./catalog");
+  const library = initialLibrary();
+  const source = library.exercises[1];
+  const instance = instantiate(source);
+  instance.articulation = STACCATO_ARTICULATION;
+  library.routines = [
+    {
+      id: "articulation-routine",
+      name: "Articulada",
+      items: [instance],
+      updatedAt: 1,
+    },
+  ];
+  await saveLibrary(library);
+  const loaded = await loadLibrary();
+  expect(loaded.routines[0].items[0].articulation).toBe(STACCATO_ARTICULATION);
+  expect(loaded.exercises[1].articulation).toBe(LEGATO_ARTICULATION);
 });
 
 it("guarda cambios consecutivos en dos instancias de una rutina existente tras otra escritura", async () => {

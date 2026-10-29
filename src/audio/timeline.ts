@@ -1,5 +1,5 @@
 import type { RoutineItem } from "../types";
-import { PIANO_ARTICULATION } from "../music/timing";
+import { articulationGate, TRANSITION_ARTICULATION } from "../music/timing";
 import { successionBases, patternNotes } from "../music/notes";
 export interface MusicalEvent {
   at: number;
@@ -64,7 +64,7 @@ export function buildTimeline(
             add({
               ...common,
               duration: beat * 0.5,
-              gate: beat * 0.5 * PIANO_ARTICULATION,
+              gate: beat * 0.5 * TRANSITION_ARTICULATION,
               midi,
               noteIndex: -1,
               phase: "transition",
@@ -84,7 +84,7 @@ export function buildTimeline(
         add({
           ...common,
           duration: beat * item.noteBeats,
-          gate: beat * item.noteBeats * PIANO_ARTICULATION,
+          gate: beat * item.noteBeats * articulationGate(item.articulation),
           midi,
           noteIndex,
           phase: "note",

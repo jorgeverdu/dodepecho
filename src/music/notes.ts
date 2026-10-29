@@ -77,9 +77,9 @@ export function validateConfig(
   if (
     !Number.isFinite(config.articulation) ||
     config.articulation < 0.2 ||
-    config.articulation > 1
+    config.articulation > 1.1
   )
-    return "La articulación debe estar entre 20 % y 100 %.";
+    return "Selecciona una articulación válida.";
   const { min, max } = baseLimits(pattern, config.lower, config.upper);
   if (config.start < min || config.start > max)
     return "La primera nota o el patrón salen del rango. Ajusta la primera nota o el límite.";

@@ -12,6 +12,7 @@ import {
 } from "lucide-react";
 import type { RoutineItem } from "../types";
 import { midiToNote } from "../music/notes";
+import { articulationLabel } from "../music/timing";
 import {
   PianoDriver,
   PlaybackEngine,
@@ -151,7 +152,7 @@ export function Player({
             </span>
             <span className="tempo">
               <Music2 size={16} />
-              {item.bpm} BPM
+              {item.bpm} BPM · {articulationLabel(item.articulation)}
             </span>
           </div>
           {complete ? (

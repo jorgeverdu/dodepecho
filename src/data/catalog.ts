@@ -1,5 +1,5 @@
 import type { Exercise, Library } from "../types";
-import { PIANO_ARTICULATION } from "../music/timing";
+import { LEGATO_ARTICULATION } from "../music/timing";
 import { DEFAULT_PIANO_VOLUME_PERCENT } from "../audio/volume";
 import { makePattern } from "../music/notes";
 const definitions: [string, string, string, number][] = [
@@ -27,7 +27,7 @@ export function initialLibrary(): Library {
       vocalization,
       bpm,
       noteBeats: 0.5,
-      articulation: PIANO_ARTICULATION,
+      articulation: LEGATO_ARTICULATION,
       pauseBeats: 2,
       start: 48,
       lower: 48,

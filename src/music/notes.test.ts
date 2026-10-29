@@ -9,6 +9,7 @@ import {
 } from "./notes";
 import { initialLibrary } from "../data/catalog";
 import { instantiate } from "../types";
+import { LEGATO_ARTICULATION, STACCATO_ARTICULATION } from "./timing";
 const config = initialLibrary().exercises[4];
 describe("Lógica musical", () => {
   it("convierte C4 ↔ MIDI 60", () => {
@@ -75,5 +76,12 @@ describe("Lógica musical", () => {
     expect(b.pattern.semitones[0]).toBe(0);
     expect(config.bpm).toBe(72);
     expect(a.id).not.toBe(b.id);
+  });
+  it("copia la articulación y permite cambiar la instancia sin alterar el banco", () => {
+    const source = { ...config, articulation: LEGATO_ARTICULATION };
+    const instance = instantiate(source);
+    expect(instance.articulation).toBe(LEGATO_ARTICULATION);
+    instance.articulation = STACCATO_ARTICULATION;
+    expect(source.articulation).toBe(LEGATO_ARTICULATION);
   });
 });
