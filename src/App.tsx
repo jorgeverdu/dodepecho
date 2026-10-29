@@ -14,6 +14,7 @@ import { instantiate } from "./types";
 import { initialLibrary } from "./data/catalog";
 import { loadLibrary, saveLibrary } from "./data/storage";
 import { upsertRoutine } from "./data/libraryMutations";
+import { applyRoutineNumericDrafts, type RoutineNumericDraft } from "./data/routineNumericDrafts";
 import { validateConfig } from "./music/notes";
 import { ExerciseEditor } from "./components/ExerciseEditor";
 import { RoutineEditor } from "./components/RoutineEditor";
@@ -101,6 +102,12 @@ export default function App() {
       settings: { ...current.settings, markKeyChanges },
     }));
   }
+  function changeMetronomeEnabled(metronomeEnabled: boolean) {
+    void persist((current) => ({
+      ...current,
+      settings: { ...current.settings, metronomeEnabled },
+    }));
+  }
   function navigate(next: Page) {
     setPage(next);
     setRoutine(null);
@@ -155,14 +162,17 @@ export default function App() {
       setNotice("Ejercicio guardado");
     }
   }
-  async function saveRoutine() {
+  async function saveRoutine(numericDrafts: RoutineNumericDraft[]) {
     const draft = routineRef.current;
     if (!draft) return;
-    const error = draft.items
+    const current = applyRoutineNumericDrafts(draft, numericDrafts);
+    routineRef.current = current;
+    setRoutineState(current);
+    const error = current.items
       .map((item) => validateConfig(item, item.pattern))
       .find(Boolean);
-    if (!draft.name.trim() || !draft.items.length || error) return;
-    const value = { ...draft, updatedAt: Date.now() };
+    if (!current.name.trim() || !current.items.length || error) return;
+    const value = { ...current, updatedAt: Date.now() };
     if (await persist((current) => upsertRoutine(current, value))) {
       setRoutine(null);
       setNotice("Rutina guardada en este dispositivo");
@@ -277,6 +287,8 @@ export default function App() {
               onVolumeChange={changeVolume}
               markKeyChanges={library.settings.markKeyChanges}
               onMarkKeyChangesChange={changeMarkKeyChanges}
+              metronomeEnabled={library.settings.metronomeEnabled}
+              onMetronomeEnabledChange={changeMetronomeEnabled}
             />
           ) : exercise ? (
             <>

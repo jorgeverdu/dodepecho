@@ -15,6 +15,7 @@ export interface MusicalEvent {
 }
 export interface Timeline {
   events: MusicalEvent[];
+  metronomeBeats: number[];
   duration: number;
   items: RoutineItem[];
   bases: number[][];
@@ -25,6 +26,7 @@ export function buildTimeline(
 ): Timeline {
   if (!items.length) throw new Error("Añade un ejercicio a la rutina.");
   const events: MusicalEvent[] = [];
+  const metronomeBeats: number[] = [];
   let at = 0;
   const bases = items.map((item) => successionBases(item, item.pattern));
   const add = (event: Omit<MusicalEvent, "at">) => {
@@ -80,7 +82,12 @@ export function buildTimeline(
             phase: "rest",
           });
       }
-      patternNotes(base, item.pattern).forEach((midi, noteIndex) =>
+      const notes = patternNotes(base, item.pattern);
+      const patternStart = at;
+      const patternDuration = notes.length * beat * item.noteBeats;
+      for (let pulse = 0; pulse * beat < patternDuration - 0.000001; pulse++)
+        metronomeBeats.push(patternStart + pulse * beat);
+      notes.forEach((midi, noteIndex) =>
         add({
           ...common,
           duration: beat * item.noteBeats,
@@ -93,5 +100,5 @@ export function buildTimeline(
       if (succession < bases[exercise].length - 1 && markKeyChanges) addPause();
     });
   });
-  return { events, duration: at, items, bases };
+  return { events, metronomeBeats, duration: at, items, bases };
 }

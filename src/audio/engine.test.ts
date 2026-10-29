@@ -12,6 +12,11 @@ function fixture(overrides: Partial<RoutineItem> = {}) {
     ready: async () => {},
     play: vi.fn((m) => active.push(m)),
     click: vi.fn(() => active.push(-1)),
+    metronomeClick: vi.fn(() => active.push(-2)),
+    stopMetronome: vi.fn(() => {
+      for (let i = active.length - 1; i >= 0; i--)
+        if (active[i] === -2) active.splice(i, 1);
+    }),
     stopAll: vi.fn(() => active.splice(0)),
     close: vi.fn(() => active.splice(0)),
   };
@@ -160,6 +165,71 @@ describe("Reproducción", () => {
     await vi.advanceTimersByTimeAsync(100);
     expect(engine.snapshot().event.count).toBe(3);
     expect(driver.click).not.toHaveBeenCalled();
+    engine.dispose();
+  });
+});
+
+describe("Metrónomo en el scheduler", () => {
+  it("está apagado por defecto y programa clicks absolutos solo para patrones", async () => {
+    const { engine, driver, timeline } = fixture({ upper: 54, bpm: 80 });
+    const origin = driver.now() + 0.06;
+    await engine.play();
+    await vi.advanceTimersByTimeAsync(3500);
+    expect(driver.metronomeClick).not.toHaveBeenCalled();
+    engine.dispose();
+
+    const enabled = new PlaybackEngine(timeline, driver, vi.fn(), true);
+    await enabled.play();
+    const enabledOrigin = driver.now() + 0.06;
+    await vi.advanceTimersByTimeAsync((timeline.duration + 0.2) * 1000);
+    expect(vi.mocked(driver.metronomeClick).mock.calls.map(([at]) => at - enabledOrigin))
+      .toEqual(timeline.metronomeBeats.map((at) => expect.closeTo(at, 5)));
+    expect(origin).toBeLessThan(enabledOrigin);
+    enabled.dispose();
+  });
+
+  it("activa y desactiva en marcha sin mover el patrón y cancela clicks futuros", async () => {
+    const { engine, driver, timeline } = fixture({ upper: 54, bpm: 80 });
+    await engine.play();
+    await vi.advanceTimersByTimeAsync(3200);
+    const before = engine.snapshot().elapsed;
+    engine.setMetronomeEnabled(true);
+    expect(engine.snapshot().elapsed).toBe(before);
+    await vi.advanceTimersByTimeAsync(750);
+    expect(driver.metronomeClick).toHaveBeenCalled();
+    const count = vi.mocked(driver.metronomeClick).mock.calls.length;
+    engine.setMetronomeEnabled(false);
+    expect(driver.stopMetronome).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(900);
+    expect(driver.metronomeClick).toHaveBeenCalledTimes(count);
+    engine.setMetronomeEnabled(true);
+    await vi.advanceTimersByTimeAsync(5000);
+    expect(vi.mocked(driver.metronomeClick).mock.calls.length).toBeGreaterThan(count);
+    expect(engine.snapshot().elapsed).toBeGreaterThan(before);
+    engine.dispose();
+    expect(timeline.metronomeBeats.length).toBeGreaterThan(count);
+  });
+
+  it("pausa cancela clicks y al continuar conserva el pulso de la sucesión", async () => {
+    const { engine, driver, timeline } = fixture({ upper: 54, bpm: 80 });
+    engine.setMetronomeEnabled(true);
+    await engine.play();
+    await vi.advanceTimersByTimeAsync(3600);
+    engine.pause();
+    const count = vi.mocked(driver.metronomeClick).mock.calls.length;
+    expect(driver.stopAll).toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(driver.metronomeClick).toHaveBeenCalledTimes(count);
+    vi.mocked(driver.metronomeClick).mockClear();
+    const origin = driver.now() + 0.06 - engine.snapshot().elapsed;
+    await engine.play();
+    await vi.advanceTimersByTimeAsync((timeline.duration + 0.2) * 1000);
+    const resumed = vi.mocked(driver.metronomeClick).mock.calls;
+    expect(resumed.length).toBeGreaterThan(0);
+    for (const [at] of resumed)
+      expect(timeline.metronomeBeats.some((beat) =>
+        Math.abs(at - origin - beat) < 0.00001,
+      )).toBe(true);
     engine.dispose();
   });
 });

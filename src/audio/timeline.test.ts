@@ -168,3 +168,46 @@ describe("Cuenta atrás y cambios de tonalidad configurables", () => {
     );
   });
 });
+
+describe("Pulso del metrónomo", () => {
+  it("empieza con cada patrón, usa su BPM y no marca pausas ni transición", () => {
+    const first = { ...item("up"), bpm: 80, noteBeats: 0.5 };
+    const second = { ...item("up"), bpm: 110, noteBeats: 1 };
+    const timeline = buildTimeline([first, second]);
+    const starts = timeline.events.filter(
+      (event) => event.phase === "note" && event.noteIndex === 0,
+    );
+    expect(timeline.metronomeBeats).toContain(starts[0].at);
+    expect(timeline.metronomeBeats).toContain(starts[1].at);
+    const secondStart = starts.find((event) => event.exercise === 1)!.at;
+    expect(timeline.metronomeBeats).toContain(secondStart);
+    expect(timeline.metronomeBeats[0]).toBe(3);
+    expect(timeline.metronomeBeats[1] - timeline.metronomeBeats[0]).toBeCloseTo(60 / 80);
+    const secondBeats = timeline.metronomeBeats.filter((at) => at >= secondStart);
+    expect(secondBeats[1] - secondBeats[0]).toBeCloseTo(60 / 110);
+    for (const at of timeline.metronomeBeats) {
+      const event = timeline.events.find((candidate) =>
+        candidate.at <= at && at < candidate.at + candidate.duration,
+      );
+      expect(event?.phase).toBe("note");
+    }
+    const firstPattern = timeline.events.filter((event) =>
+      event.exercise === 0 && event.succession === 0 && event.phase === "note",
+    );
+    expect(firstPattern[1].at - firstPattern[0].at).toBeCloseTo(0.5 * 60 / 80);
+    expect(timeline.metronomeBeats[1]).toBeCloseTo(firstPattern[2].at);
+  });
+
+  it("reinicia la fase al comenzar cada sucesión sin marcar la pausa fija", () => {
+    const timeline = buildTimeline([{ ...item("up"), noteBeats: 0.5 }], false);
+    for (const start of timeline.events.filter((event) =>
+      event.phase === "note" && event.noteIndex === 0,
+    )) expect(timeline.metronomeBeats).toContain(start.at);
+    for (const at of timeline.metronomeBeats) {
+      const event = timeline.events.find((candidate) =>
+        candidate.at <= at && at < candidate.at + candidate.duration,
+      );
+      expect(event?.phase).toBe("note");
+    }
+  });
+});

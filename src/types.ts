@@ -38,6 +38,7 @@ export interface Settings {
   theme: "system" | "light" | "dark";
   volumePercent: number;
   markKeyChanges: boolean;
+  metronomeEnabled: boolean;
 }
 export interface Library {
   exercises: Exercise[];

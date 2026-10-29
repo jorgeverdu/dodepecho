@@ -45,6 +45,7 @@ export function initialLibrary(): Library {
       theme: "system",
       volumePercent: DEFAULT_PIANO_VOLUME_PERCENT,
       markKeyChanges: true,
+      metronomeEnabled: false,
     },
   };
 }

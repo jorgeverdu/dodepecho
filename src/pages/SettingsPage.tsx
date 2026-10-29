@@ -2,6 +2,7 @@ import { Monitor, Sun, Moon, Check, WifiOff } from "lucide-react";
 import type { Settings } from "../types";
 import { PianoVolumeControl } from "../components/PianoVolumeControl";
 import { MarkKeyChangesControl } from "../components/MarkKeyChangesControl";
+import { MetronomeControl } from "../components/MetronomeControl";
 export function SettingsPage({
   settings,
   onChange,
@@ -50,6 +51,12 @@ export function SettingsPage({
           value={settings.markKeyChanges}
           onChange={(markKeyChanges) =>
             onChange({ ...settings, markKeyChanges })
+          }
+        />
+        <MetronomeControl
+          value={settings.metronomeEnabled}
+          onChange={(metronomeEnabled) =>
+            onChange({ ...settings, metronomeEnabled })
           }
         />
         <p>

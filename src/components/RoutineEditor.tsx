@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import type { Dispatch, SetStateAction } from "react";
 import {
   ArrowLeft,
@@ -12,17 +12,18 @@ import {
 } from "lucide-react";
 import type { Exercise, Routine, RoutineItem } from "../types";
 import { instantiate } from "../types";
-import { midiToNote, validateConfig } from "../music/notes";
+import { midiToNote } from "../music/notes";
 import { firstAudibleNote, rangeExtreme } from "../music/range";
 import { updateRoutineItem } from "../data/libraryMutations";
 import { Contour } from "./Contour";
 import { ConfigEditor } from "./ConfigEditor";
+import type { RoutineNumericDraft, RoutineNumericField } from "../data/routineNumericDrafts";
 interface Props {
   routine: Routine;
   setRoutine: Dispatch<SetStateAction<Routine | null>>;
   library: { exercises: Exercise[] };
   onClose: () => void;
-  onSave: () => Promise<void>;
+  onSave: (drafts: RoutineNumericDraft[]) => Promise<void>;
 }
 export function RoutineEditor({
   routine,
@@ -32,13 +33,33 @@ export function RoutineEditor({
   onSave,
 }: Props) {
   const [picker, setPicker] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const savingRef = useRef(false);
+  const itemContainer = useRef<HTMLDivElement>(null);
   const [expanded, setExpanded] = useState<string | null>(
     routine.items.at(-1)?.id ?? null,
   );
-  const routineValid =
-    routine.name.trim() &&
-    routine.items.length > 0 &&
-    routine.items.every((i) => !validateConfig(i, i.pattern));
+  async function handleSave() {
+    if (savingRef.current) return;
+    savingRef.current = true;
+    setSaving(true);
+    const drafts = Array.from(
+      itemContainer.current?.querySelectorAll<HTMLInputElement>(
+        "input[data-routine-field]",
+      ) ?? [],
+      (input) => ({
+        itemId: input.dataset.routineItemId!,
+        field: input.dataset.routineField as RoutineNumericField,
+        raw: input.value,
+      }),
+    );
+    try {
+      await onSave(drafts);
+    } finally {
+      savingRef.current = false;
+      setSaving(false);
+    }
+  }
   function editItem(id: string, update: (item: RoutineItem) => RoutineItem) {
     setRoutine((current) =>
       current ? updateRoutineItem(current, id, update) : current,
@@ -74,10 +95,10 @@ export function RoutineEditor({
         </div>
         <button
           className="button primary"
-          disabled={!routineValid}
-          onClick={() => void onSave()}
+          disabled={saving || !routine.name.trim() || !routine.items.length}
+          onClick={() => void handleSave()}
         >
-          <Check size={18} /> Guardar rutina
+          <Check size={18} /> {saving ? "Guardando…" : "Guardar rutina"}
         </button>
       </div>
       <section className="routine-name panel">
@@ -96,7 +117,7 @@ export function RoutineEditor({
           Cada ejercicio conserva sus propios ajustes. El banco no se modifica.
         </p>
       </section>
-      <div className="routine-items">
+      <div className="routine-items" ref={itemContainer}>
         {routine.items.map((item, i) => (
           <section className="routine-item panel" key={item.id}>
             <div className="routine-item-head">
@@ -181,6 +202,7 @@ export function RoutineEditor({
                 <ConfigEditor
                   value={item}
                   pattern={item.pattern}
+                  routineItemId={item.id}
                   onChange={(update) =>
                     editItem(item.id, (current) => ({
                       ...current,

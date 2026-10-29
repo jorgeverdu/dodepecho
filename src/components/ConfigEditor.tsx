@@ -16,10 +16,12 @@ export function ConfigEditor({
   value,
   pattern,
   onChange,
+  routineItemId,
 }: {
   value: ExerciseConfig;
   pattern: Pattern;
   onChange: (update: (current: ExerciseConfig) => ExerciseConfig) => void;
+  routineItemId?: string;
 }) {
   const set = <K extends keyof ExerciseConfig>(key: K, v: ExerciseConfig[K]) =>
     onChange((current) => ({ ...current, [key]: v }));
@@ -50,6 +52,8 @@ export function ConfigEditor({
         <label>
           Tempo · BPM
           <NumericInput
+            data-routine-item-id={routineItemId}
+            data-routine-field={routineItemId ? "bpm" : undefined}
             min="30"
             max="240"
             inputMode="numeric"
@@ -139,6 +143,8 @@ export function ConfigEditor({
         <label>
           Pausa · tiempos
           <NumericInput
+            data-routine-item-id={routineItemId}
+            data-routine-field={routineItemId ? "pauseBeats" : undefined}
             min="0"
             max="16"
             step="0.5"
@@ -150,6 +156,8 @@ export function ConfigEditor({
         <label>
           Paso · semitonos
           <NumericInput
+            data-routine-item-id={routineItemId}
+            data-routine-field={routineItemId ? "step" : undefined}
             min="1"
             max="12"
             inputMode="numeric"

@@ -19,6 +19,8 @@ export interface AudioDriver {
   ready(): Promise<void>;
   play(midi: number, at: number, duration: number): void;
   click(at: number): void;
+  metronomeClick(at: number): void;
+  stopMetronome(): void;
   stopAll(): void;
   close(): void;
 }
@@ -29,6 +31,11 @@ export class PianoDriver implements AudioDriver {
   private limiter: WaveShaperNode;
   private output: GainNode;
   private voices = new Set<{
+    source: AudioScheduledSourceNode;
+    gain: GainNode;
+    at: number;
+  }>();
+  private metronomeVoices = new Set<{
     source: AudioScheduledSourceNode;
     gain: GainNode;
     at: number;
@@ -136,6 +143,23 @@ export class PianoDriver implements AudioDriver {
     source.stop(at + 0.05);
     source.onended = () => this.releaseVoice(voice);
   }
+  metronomeClick(at: number) {
+    const source = this.context.createOscillator();
+    const gain = this.context.createGain();
+    const voice = { source, gain, at };
+    this.voices.add(voice);
+    this.metronomeVoices.add(voice);
+    source.type = "triangle";
+    source.frequency.value = 900;
+    gain.gain.setValueAtTime(0, at);
+    gain.gain.linearRampToValueAtTime(0.028, at + 0.002);
+    gain.gain.exponentialRampToValueAtTime(0.001, at + 0.03);
+    source.connect(gain);
+    gain.connect(this.limiterInput);
+    source.start(at);
+    source.stop(at + 0.035);
+    source.onended = () => this.releaseVoice(voice);
+  }
   private releaseVoice(voice: {
     source: AudioScheduledSourceNode;
     gain: GainNode;
@@ -144,6 +168,7 @@ export class PianoDriver implements AudioDriver {
     voice.source.disconnect();
     voice.gain.disconnect();
     this.voices.delete(voice);
+    this.metronomeVoices.delete(voice);
   }
   private playFallback(midi: number, at: number, duration: number) {
     const frequencyHz = frequency(midi);
@@ -171,9 +196,9 @@ export class PianoDriver implements AudioDriver {
       osc.onended = () => this.releaseVoice(voice);
     }
   }
-  stopAll() {
+  private stopVoices(voices: Iterable<{ source: AudioScheduledSourceNode; gain: GainNode; at: number }>) {
     const now = this.now();
-    for (const voice of this.voices) {
+    for (const voice of [...voices]) {
       const { source, gain, at } = voice;
       gain.gain.cancelScheduledValues(now);
       if (at <= now) gain.gain.setTargetAtTime(0, now, 0.003);
@@ -185,6 +210,12 @@ export class PianoDriver implements AudioDriver {
       }
       if (at > now) this.releaseVoice(voice);
     }
+  }
+  stopMetronome() {
+    this.stopVoices(this.metronomeVoices);
+  }
+  stopAll() {
+    this.stopVoices(this.voices);
   }
   close() {
     this.stopAll();
@@ -207,13 +238,28 @@ export class PlaybackEngine {
   private offset = 0;
   private origin = 0;
   private next = 0;
+  private nextBeat = 0;
+  private metronomeEnabled: boolean;
   private timer: ReturnType<typeof setTimeout> | undefined;
   private generation = 0;
   constructor(
     readonly timeline: Timeline,
     private driver: AudioDriver,
     private listener: (state: PlayerSnapshot) => void,
-  ) {}
+    metronomeEnabled = false,
+  ) {
+    this.metronomeEnabled = metronomeEnabled;
+  }
+  setMetronomeEnabled(enabled: boolean) {
+    if (this.metronomeEnabled === enabled) return;
+    this.metronomeEnabled = enabled;
+    if (!enabled) this.driver.stopMetronome();
+    const elapsed = this.snapshot().elapsed;
+    this.nextBeat = this.timeline.metronomeBeats.findIndex(
+      (at) => at >= elapsed - 0.000001,
+    );
+    if (this.nextBeat < 0) this.nextBeat = this.timeline.metronomeBeats.length;
+  }
   private eventAt(time: number): MusicalEvent {
     let lo = 0,
       hi = this.timeline.events.length - 1;
@@ -254,6 +300,10 @@ export class PlaybackEngine {
       (e) => e.at >= this.offset - 0.00001,
     );
     if (this.next < 0) this.next = this.timeline.events.length;
+    this.nextBeat = this.timeline.metronomeBeats.findIndex(
+      (at) => at >= this.offset - 0.000001,
+    );
+    if (this.nextBeat < 0) this.nextBeat = this.timeline.metronomeBeats.length;
     this.tick();
   }
   private tick = () => {
@@ -279,6 +329,16 @@ export class PlaybackEngine {
         this.driver.play(e.midi, Math.max(now, startsAt), remaining);
       else if (e.phase === "countdown" && startsAt + 0.05 > now)
         this.driver.click(Math.max(now, startsAt));
+    }
+    if (this.metronomeEnabled) {
+      while (
+        this.nextBeat < this.timeline.metronomeBeats.length &&
+        this.timeline.metronomeBeats[this.nextBeat] < elapsed + 0.15
+      ) {
+        const startsAt = this.timeline.metronomeBeats[this.nextBeat++] + this.origin;
+        if (startsAt + 0.035 > now)
+          this.driver.metronomeClick(Math.max(now, startsAt));
+      }
     }
     this.emit();
     this.timer = setTimeout(this.tick, 25);

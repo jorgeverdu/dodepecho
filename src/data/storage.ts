@@ -48,11 +48,18 @@ export async function loadLibrary(): Promise<Library> {
         settings: { ...library.settings, markKeyChanges: true },
       };
     }
+    if (library.settings.metronomeEnabled === undefined) {
+      library = {
+        ...library,
+        settings: { ...library.settings, metronomeEnabled: false },
+      };
+    }
     if (
       !stored ||
       version < CATALOG_VERSION ||
       stored.settings.volumePercent === undefined ||
-      stored.settings.markKeyChanges === undefined
+      stored.settings.markKeyChanges === undefined ||
+      stored.settings.metronomeEnabled === undefined
     )
       await tx.store.put(library, "state");
     await tx.done;

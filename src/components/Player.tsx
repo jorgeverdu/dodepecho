@@ -22,6 +22,7 @@ import { buildTimeline } from "../audio/timeline";
 import { Contour } from "./Contour";
 import { PianoVolumeControl } from "./PianoVolumeControl";
 import { MarkKeyChangesControl } from "./MarkKeyChangesControl";
+import { MetronomeControl } from "./MetronomeControl";
 export function Player({
   items,
   title,
@@ -30,6 +31,8 @@ export function Player({
   onVolumeChange,
   markKeyChanges,
   onMarkKeyChangesChange,
+  metronomeEnabled,
+  onMetronomeEnabledChange,
 }: {
   items: RoutineItem[];
   title: string;
@@ -38,6 +41,8 @@ export function Player({
   onVolumeChange: (value: number) => void;
   markKeyChanges: boolean;
   onMarkKeyChangesChange: (value: boolean) => void;
+  metronomeEnabled: boolean;
+  onMetronomeEnabledChange: (value: boolean) => void;
 }) {
   const [timeline, setTimeline] = useState(() =>
     buildTimeline(items, markKeyChanges),
@@ -56,6 +61,7 @@ export function Player({
   const piano = useRef<PianoDriver | null>(null);
   useEffect(() => () => engine.current?.dispose(), []);
   useEffect(() => piano.current?.setVolume(volumePercent), [volumePercent]);
+  useEffect(() => engine.current?.setMetronomeEnabled(metronomeEnabled), [metronomeEnabled]);
   useEffect(() => {
     if (state.status !== "playing" || !("wakeLock" in navigator)) return;
     let lock: WakeLockSentinel | undefined,
@@ -89,7 +95,12 @@ export function Player({
             event.midi === null ? [] : [event.midi],
           ),
         );
-        engine.current = new PlaybackEngine(timeline, piano.current, setState);
+        engine.current = new PlaybackEngine(
+          timeline,
+          piano.current,
+          setState,
+          metronomeEnabled,
+        );
       }
       await engine.current.play();
     } catch {
@@ -123,6 +134,10 @@ export function Player({
       });
       setPracticeMarkKeyChanges(value);
     }
+  };
+  const changeMetronomeEnabled = (value: boolean) => {
+    engine.current?.setMetronomeEnabled(value);
+    onMetronomeEnabledChange(value);
   };
   const event = state.event,
     item = items[event.exercise],
@@ -286,6 +301,10 @@ export function Player({
           <MarkKeyChangesControl
             value={markKeyChanges}
             onChange={changeMarkKeyChanges}
+          />
+          <MetronomeControl
+            value={metronomeEnabled}
+            onChange={changeMetronomeEnabled}
           />
           {markKeyChanges !== practiceMarkKeyChanges && (
             <p className="setting-note">

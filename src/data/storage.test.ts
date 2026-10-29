@@ -62,6 +62,7 @@ it("añade volumen a una biblioteca antigua sin perder rutinas ni ejercicios per
     theme: "dark",
     volumePercent: 140,
     markKeyChanges: true,
+    metronomeEnabled: false,
   });
   expect(await db.get("library", "state")).toEqual(migrated);
   db.close();
@@ -95,6 +96,38 @@ it("añade el ajuste global a datos antiguos sin modificar rutinas ni favoritos"
   loaded.settings.markKeyChanges = false;
   await saveLibrary(loaded);
   expect((await loadLibrary()).settings.markKeyChanges).toBe(false);
+  db.close();
+});
+
+it("añade metrónomo apagado a datos antiguos y persiste el cambio sin tocar la biblioteca", async () => {
+  const { openDB } = await import("idb");
+  const { initialLibrary } = await import("./catalog");
+  const old = initialLibrary();
+  delete (old.settings as Partial<typeof old.settings>).metronomeEnabled;
+  old.settings.volumePercent = 217;
+  old.settings.markKeyChanges = false;
+  old.exercises[0].favorite = true;
+  old.exercises.push({ ...old.exercises[0], id: "custom-metro", builtin: false });
+  old.routines.push({
+    id: "routine-metro",
+    name: "Conservar",
+    items: [instantiate(old.exercises.at(-1)!)],
+    updatedAt: 42,
+  });
+  const before = structuredClone(old);
+  const db = await openDB("vocalia", 1);
+  await db.put("library", old, "state");
+  await db.put("library", 2, "catalogVersion");
+  const loaded = await loadLibrary();
+  expect(loaded.settings).toEqual({ ...before.settings, metronomeEnabled: false });
+  expect(loaded.exercises).toEqual(before.exercises);
+  expect(loaded.routines).toEqual(before.routines);
+  loaded.settings.metronomeEnabled = true;
+  await saveLibrary(loaded);
+  const reopened = await loadLibrary();
+  expect(reopened.settings.metronomeEnabled).toBe(true);
+  expect(reopened.exercises).toEqual(before.exercises);
+  expect(reopened.routines).toEqual(before.routines);
   db.close();
 });
 
