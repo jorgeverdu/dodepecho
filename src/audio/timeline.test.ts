@@ -35,14 +35,13 @@ describe("Pausa a ambos lados de cada transición", () => {
         )
           return;
         transitions++;
-        const block = events.slice(i - 2, i + 4);
+        const block = events.slice(i - 2, i + 3);
         expect(block.map((e) => e.phase)).toEqual([
           "note",
           "rest",
           "transition",
           "transition",
           "rest",
-          "note",
         ]);
         expect(block[1].duration).toBeCloseTo(pauseSeconds);
         expect(block[4].duration).toBeCloseTo(pauseSeconds);
@@ -52,7 +51,10 @@ describe("Pausa a ambos lados de cada transición", () => {
         expect(block[3].midi).toBe(bases[0][event.succession]);
         expect(block[2].duration).toBeCloseTo((60 / config.bpm) * 0.5);
         expect(block[3].duration).toBeCloseTo((60 / config.bpm) * 0.5);
-        expect(block[5].noteIndex).toBe(0);
+        const nextPattern = events.slice(i + 3).find((e) => e.phase === "note")!;
+        expect(nextPattern.noteIndex).toBe(0);
+        const beatPosition = (nextPattern.at - events[3].at) / (60 / config.bpm);
+        expect(beatPosition).toBeCloseTo(Math.round(beatPosition), 8);
       });
       expect(transitions).toBe(bases[0].length - 1);
       for (let i = 1; i < events.length; i++)
@@ -78,16 +80,17 @@ describe("Pausa a ambos lados de cada transición", () => {
     );
   });
 
-  it("pausa cero no añade silencios artificiales", () => {
+  it("pausa cero omite las pausas configuradas y solo añade cuantización si hace falta", () => {
     const { events } = buildTimeline([item("up", 0)]);
-    expect(events.some((e) => e.phase === "rest")).toBe(false);
     const i = events.findIndex((e) => e.phase === "transition");
-    expect(events.slice(i - 1, i + 3).map((e) => e.phase)).toEqual([
+    expect(events.slice(i - 1, i + 2).map((e) => e.phase)).toEqual([
       "note",
       "transition",
       "transition",
-      "note",
     ]);
+    const next = events.slice(i + 2).find((e) => e.phase === "note")!;
+    const padding = events.slice(i + 2, events.indexOf(next));
+    expect(padding.every((e) => e.phase === "rest" && e.duration < 60 / 80)).toBe(true);
   });
 
   it("Legato y Staccato mantienen los ataques, pero cambian solo el gate del patrón", () => {
@@ -151,21 +154,55 @@ describe("Cuenta atrás y cambios de tonalidad configurables", () => {
       3, 2, 1,
     ]);
   });
+  it.each([60, 80, 120])("3–2–1 sigue el BPM %i y enlaza con el primer ataque", (bpm) => {
+    const { events, metronomeBeats } = buildTimeline([{ ...item("up"), bpm }]);
+    const beat = 60 / bpm;
+    const countdown = events.slice(0, 3);
+    expect(countdown.map((event) => event.count)).toEqual([3, 2, 1]);
+    countdown.forEach((event, index) => {
+      expect(event.at).toBeCloseTo(index * beat, 8);
+      expect(event.duration).toBeCloseTo(beat, 8);
+    });
+    const first = events.find((event) => event.phase === "note")!;
+    expect(first.at).toBeCloseTo(countdown[2].at + beat, 8);
+    expect(metronomeBeats[0]).toBeCloseTo(first.at, 8);
+    expect(metronomeBeats.every((at) => at >= first.at - 1e-8)).toBe(true);
+  });
+  it("cada ejercicio utiliza su propio tempo durante la nueva cuenta atrás", () => {
+    const timeline = buildTimeline([
+      { ...item("up"), bpm: 80 },
+      { ...item("up"), bpm: 120 },
+    ]);
+    for (const [exercise, bpm] of [80, 120].entries()) {
+      const countdown = timeline.events.filter((event) =>
+        event.exercise === exercise && event.phase === "countdown",
+      );
+      const first = timeline.events.find((event) =>
+        event.exercise === exercise && event.phase === "note",
+      )!;
+      expect(countdown).toHaveLength(3);
+      expect(countdown.map((event) => event.duration)).toEqual([60 / bpm, 60 / bpm, 60 / bpm]);
+      expect(first.at - countdown[0].at).toBeCloseTo(3 * 60 / bpm, 8);
+      expect(timeline.metronomeBeats).toContain(first.at);
+    }
+  });
   it.each([70, 80, 90])("apagado: un solo segundo de pausa a %i BPM", (bpm) => {
     const { events } = buildTimeline([{ ...item("up", 4), bpm }], false);
     expect(events.some((e) => e.phase === "transition")).toBe(false);
+    let fixedGaps = 0;
     for (let i = 0; i < events.length; i++) {
-      if (events[i].phase !== "rest") continue;
+      if (events[i].phase !== "rest" || events[i - 1].phase !== "note") continue;
+      fixedGaps++;
       expect(events[i].duration).toBe(1);
       expect(events[i - 1].phase).toBe("note");
-      expect(events[i + 1].phase).toBe("note");
+      const next = events.slice(i + 1).find((event) => event.phase === "note")!;
       expect(
-        events[i + 1].at - (events[i - 1].at + events[i - 1].duration),
-      ).toBeCloseTo(1);
+        next.at - (events[i - 1].at + events[i - 1].duration),
+      ).toBeGreaterThanOrEqual(1 - 1e-8);
+      const beatPosition = (next.at - events[3].at) / (60 / bpm);
+      expect(beatPosition).toBeCloseTo(Math.round(beatPosition), 8);
     }
-    expect(events.filter((e) => e.phase === "rest")).toHaveLength(
-      events.filter((e) => e.phase === "note" && e.noteIndex === 0).length - 1,
-    );
+    expect(fixedGaps).toBe(events.filter((e) => e.phase === "note" && e.noteIndex === 0).length - 1);
   });
 });
 
@@ -193,7 +230,7 @@ describe("Pulso del metrónomo", () => {
     ))).toBe(false);
   });
 
-  it("5 notas de medio beat acaban en 2,5: la pausa y transición avanzan sin reiniciar clicks", () => {
+  it("5 notas de medio beat acaban en 2,5 y el siguiente patrón entra en beat 5", () => {
     const beat = 0.5;
     const timeline = buildTimeline([{ ...item("up", 0.5), bpm: 120, noteBeats: 0.5 }]);
     const events = timeline.events;
@@ -212,20 +249,68 @@ describe("Pulso del metrónomo", () => {
     expect(transition[1].duration).toBeCloseTo(0.5 * beat);
     expect(after.phase).toBe("rest");
     expect(after.at).toBeCloseTo(transition[0].at + beat);
-    expect(nextPattern.at).toBeCloseTo(start + 4.5 * beat);
+    const padding = events[events.indexOf(after) + 1];
+    expect(padding.phase).toBe("rest");
+    expect(padding.duration).toBeCloseTo(0.5 * beat);
+    expect(nextPattern.at).toBeCloseTo(start + 5 * beat);
     expect(timeline.metronomeBeats.slice(0, 6)).toEqual(
       Array.from({ length: 6 }, (_, n) => start + n * beat),
     );
-    expect(timeline.metronomeBeats).not.toContain(nextPattern.at);
+    expect(timeline.metronomeBeats).toContain(nextPattern.at);
+  });
+
+  it.each([
+    [0.5, 0.25, 4, 0],
+    [0.25, 1, 4.25, 0.75],
+    [0.5, 0.5, 4.5, 0.5],
+    [0.25, 1.25, 4.75, 0.25],
+  ])("posición bruta %s notas / %s pausa = beat %s; añade %s beats", (noteBeats, pauseBeats, rawBeat, expectedPadding) => {
+    const timeline = buildTimeline([{ ...item("up", pauseBeats), bpm: 120, noteBeats }]);
+    const start = timeline.events.find((event) => event.phase === "note")!.at;
+    const next = timeline.events.find((event) => event.succession === 1 && event.phase === "note")!;
+    const transition = timeline.events.findIndex((event) => event.phase === "transition");
+    const configuredAfter = timeline.events[transition + 2];
+    const rawEnd = configuredAfter.at + configuredAfter.duration;
+    expect((rawEnd - start) / 0.5).toBeCloseTo(rawBeat, 8);
+    expect((next.at - rawEnd) / 0.5).toBeCloseTo(expectedPadding, 8);
+    expect((next.at - start) / 0.5).toBeCloseTo(Math.ceil(rawBeat), 8);
+  });
+
+  it.each([60, 80, 120])("cuantiza cada duración por nota a %i BPM", (bpm) => {
+    for (const noteBeats of [0.25, 0.5, 1, 2]) {
+      const timeline = buildTimeline([{ ...item("up", 0.5), bpm, noteBeats }]);
+      const first = timeline.events.find((event) => event.phase === "note")!;
+      const beat = 60 / bpm;
+      for (const start of timeline.events.filter((event) =>
+        event.phase === "note" && event.noteIndex === 0,
+      )) {
+        const position = (start.at - first.at) / beat;
+        expect(position).toBeCloseTo(Math.round(position), 8);
+        expect(timeline.metronomeBeats.some((at) => Math.abs(at - start.at) < 1e-8)).toBe(true);
+      }
+    }
+  });
+
+  it("no añade una pausa diminuta por error de coma flotante", () => {
+    const timeline = buildTimeline([{ ...item("up", 0.25), bpm: 70, noteBeats: 0.5 }]);
+    const transition = timeline.events.findIndex((event) => event.phase === "transition");
+    const configuredAfter = timeline.events[transition + 2];
+    const next = timeline.events[transition + 3];
+    expect(configuredAfter.phase).toBe("rest");
+    expect(next.phase).toBe("note");
+    expect((next.at - timeline.events[3].at) / (60 / 70)).toBeCloseTo(4, 8);
   });
 
   it.each([60, 120])("pauseBeats sigue siendo musical a %i BPM", (bpm) => {
     for (const pauseBeats of [0.5, 1, 2]) {
       const { events } = buildTimeline([{ ...item("up", pauseBeats), bpm }]);
       const beat = 60 / bpm;
-      const rests = events.filter((event) => event.phase === "rest");
-      expect(rests.length).toBeGreaterThan(0);
-      rests.forEach((event) => expect(event.duration).toBeCloseTo(pauseBeats * beat, 8));
+      const transitionStart = events.findIndex((event) => event.phase === "transition");
+      const configuredRests = [events[transitionStart - 1], events[transitionStart + 2]];
+      configuredRests.forEach((event) => {
+        expect(event.phase).toBe("rest");
+        expect(event.duration).toBeCloseTo(pauseBeats * beat, 8);
+      });
       const transition = events.filter((event) => event.phase === "transition");
       expect(transition[0].duration).toBeCloseTo(0.5 * beat, 8);
       expect(transition[1].at - transition[0].at).toBeCloseTo(0.5 * beat, 8);
@@ -233,7 +318,7 @@ describe("Pulso del metrónomo", () => {
     }
   });
 
-  it.each([0.25, 0.5, 1, 2])("mantiene la rejilla con duración por nota %s beats", (noteBeats) => {
+  it.each([0.25, 0.5, 1, 2])("mantiene notas subdivididas y cuantiza sucesiones con %s beats", (noteBeats) => {
     const beat = 60 / 120;
     const timeline = buildTimeline([{ ...item("up", 0.5), bpm: 120, noteBeats }]);
     const notes = timeline.events.filter((event) => event.succession === 0 && event.phase === "note");
@@ -244,9 +329,11 @@ describe("Pulso del metrónomo", () => {
     timeline.metronomeBeats.forEach((at, index) =>
       expect(at).toBeCloseTo(start + index * beat, 8),
     );
+    for (const event of timeline.events.filter((event) => event.phase === "note" && event.noteIndex === 0))
+      expect((event.at - start) / beat).toBeCloseTo(Math.round((event.at - start) / beat), 8);
   });
 
-  it("reinicia la fase al comenzar cada sucesión sin marcar la pausa fija", () => {
+  it("sin transición, mantiene la rejilla pero calla durante el segundo fijo", () => {
     const timeline = buildTimeline([{ ...item("up"), noteBeats: 0.5 }], false);
     for (const start of timeline.events.filter((event) =>
       event.phase === "note" && event.noteIndex === 0,
@@ -255,7 +342,11 @@ describe("Pulso del metrónomo", () => {
       const event = timeline.events.find((candidate) =>
         candidate.at <= at && at < candidate.at + candidate.duration,
       );
-      expect(event?.phase).toBe("note");
+      expect(event?.phase).toMatch(/note|rest/);
     }
+    const fixed = timeline.events.find((event, index) =>
+      event.phase === "rest" && timeline.events[index - 1]?.phase === "note",
+    )!;
+    expect(timeline.metronomeBeats.some((at) => at >= fixed.at && at < fixed.at + fixed.duration)).toBe(false);
   });
 });

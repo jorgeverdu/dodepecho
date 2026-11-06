@@ -34,9 +34,10 @@ export function buildTimeline(
     at += event.duration;
   };
   items.forEach((item, exercise) => {
+    const beat = 60 / item.bpm;
     for (let count = 3; count >= 1; count--)
       add({
-        duration: 1,
+        duration: beat,
         gate: 0,
         midi: null,
         exercise,
@@ -47,7 +48,7 @@ export function buildTimeline(
         count,
       });
     const exerciseMusicalStart = at;
-    const beat = 60 / item.bpm;
+    const fixedSilentGaps: { start: number; end: number }[] = [];
     bases[exercise].forEach((base, succession) => {
       const common = { exercise, succession, base };
       const addPause = () => {
@@ -73,7 +74,8 @@ export function buildTimeline(
               phase: "transition",
             });
           addPause();
-        } else
+        } else {
+          const start = at;
           add({
             ...common,
             duration: 1,
@@ -82,15 +84,26 @@ export function buildTimeline(
             noteIndex: -1,
             phase: "rest",
           });
+          fixedSilentGaps.push({ start, end: at });
+        }
+        // Only the start of a new succession is quantized; its notes keep
+        // their configured subdivisions and the fixed gap stays at one second.
+        const beatPosition = (at - exerciseMusicalStart) / beat;
+        const paddingBeats =
+          Math.abs(beatPosition - Math.round(beatPosition)) < 1e-8
+            ? 0
+            : Math.ceil(beatPosition) - beatPosition;
+        if (paddingBeats > 0)
+          add({
+            ...common,
+            duration: paddingBeats * beat,
+            gate: 0,
+            midi: null,
+            noteIndex: -1,
+            phase: "rest",
+          });
       }
       const notes = patternNotes(base, item.pattern);
-      if (!markKeyChanges) {
-        // The fixed one-second gap is outside the musical beat grid.
-        const patternStart = at;
-        const patternDuration = notes.length * beat * item.noteBeats;
-        for (let pulse = 0; pulse * beat < patternDuration - 0.000001; pulse++)
-          metronomeBeats.push(patternStart + pulse * beat);
-      }
       notes.forEach((midi, noteIndex) =>
         add({
           ...common,
@@ -103,9 +116,12 @@ export function buildTimeline(
       );
       if (succession < bases[exercise].length - 1 && markKeyChanges) addPause();
     });
-    if (markKeyChanges)
-      for (let pulse = 0; exerciseMusicalStart + pulse * beat < at - 0.000001; pulse++)
-        metronomeBeats.push(exerciseMusicalStart + pulse * beat);
+    for (let pulse = 0; exerciseMusicalStart + pulse * beat < at - 0.000001; pulse++) {
+      const pulseAt = exerciseMusicalStart + pulse * beat;
+      if (fixedSilentGaps.some(({ start, end }) => pulseAt >= start && pulseAt < end))
+        continue;
+      metronomeBeats.push(pulseAt);
+    }
   });
   return { events, metronomeBeats, duration: at, items, bases };
 }

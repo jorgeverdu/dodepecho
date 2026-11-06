@@ -209,7 +209,8 @@ describe("Metrónomo en el scheduler", () => {
     )!;
     expect(clicks.some((at) => Math.abs(at - transition.at) < 1e-8)).toBe(true);
     expect(clicks.some((at) => Math.abs(at - afterTransition.at) < 1e-8)).toBe(true);
-    expect(clicks.every((at) => at >= 3)).toBe(true);
+    const firstPattern = timeline.events.find((event) => event.phase === "note")!;
+    expect(clicks.every((at) => at >= firstPattern.at - 1e-8)).toBe(true);
     const playedTransition = vi.mocked(driver.play).mock.calls.filter(
       ([midi]) => midi === transition.midi,
     );
@@ -300,11 +301,13 @@ describe("Scheduler con pausa–transición–pausa", () => {
       const firstTransition = timeline.events.findIndex(
         (e) => e.phase === "transition",
       );
-      const target =
-        timeline.events[
-          firstTransition +
-            (position === "antes" ? -1 : position === "durante" ? 0 : 2)
-        ];
+      const afterTransition = timeline.events.findIndex(
+        (event, index) => index > firstTransition && event.phase === "note",
+      ) - 1;
+      const target = timeline.events[
+        position === "antes" ? firstTransition - 1 :
+          position === "durante" ? firstTransition : afterTransition
+      ];
       await engine.play();
       await vi.advanceTimersByTimeAsync(
         (0.06 + target.at + target.duration - 0.05) * 1000,
