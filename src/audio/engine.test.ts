@@ -170,7 +170,7 @@ describe("Reproducción", () => {
 });
 
 describe("Metrónomo en el scheduler", () => {
-  it("está apagado por defecto y programa clicks absolutos solo para patrones", async () => {
+  it("está apagado por defecto y programa la rejilla absoluta del ejercicio", async () => {
     const { engine, driver, timeline } = fixture({ upper: 54, bpm: 80 });
     const origin = driver.now() + 0.06;
     await engine.play();
@@ -186,6 +186,35 @@ describe("Metrónomo en el scheduler", () => {
       .toEqual(timeline.metronomeBeats.map((at) => expect.closeTo(at, 5)));
     expect(origin).toBeLessThan(enabledOrigin);
     enabled.dispose();
+  });
+
+  it("programa clicks también durante transición y pausa sin desplazar las notas", async () => {
+    const { driver } = fixture();
+    const item = {
+      ...instantiate(initialLibrary().exercises[0]),
+      bpm: 120,
+      noteBeats: 0.5,
+      pauseBeats: 0.5,
+      upper: 54,
+    };
+    const timeline = buildTimeline([item]);
+    const engine = new PlaybackEngine(timeline, driver, vi.fn(), true);
+    const origin = driver.now() + 0.06;
+    await engine.play();
+    await vi.advanceTimersByTimeAsync((timeline.duration + 0.2) * 1000);
+    const clicks = vi.mocked(driver.metronomeClick).mock.calls.map(([at]) => at - origin);
+    const transition = timeline.events.find((event) => event.phase === "transition")!;
+    const afterTransition = timeline.events.find((event, index) =>
+      event.phase === "rest" && timeline.events[index - 1]?.phase === "transition",
+    )!;
+    expect(clicks.some((at) => Math.abs(at - transition.at) < 1e-8)).toBe(true);
+    expect(clicks.some((at) => Math.abs(at - afterTransition.at) < 1e-8)).toBe(true);
+    expect(clicks.every((at) => at >= 3)).toBe(true);
+    const playedTransition = vi.mocked(driver.play).mock.calls.filter(
+      ([midi]) => midi === transition.midi,
+    );
+    expect(playedTransition.some(([, at]) => Math.abs(at - origin - transition.at) < 1e-8)).toBe(true);
+    engine.dispose();
   });
 
   it("activa y desactiva en marcha sin mover el patrón y cancela clicks futuros", async () => {

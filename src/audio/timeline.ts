@@ -46,6 +46,7 @@ export function buildTimeline(
         phase: "countdown",
         count,
       });
+    const exerciseMusicalStart = at;
     const beat = 60 / item.bpm;
     bases[exercise].forEach((base, succession) => {
       const common = { exercise, succession, base };
@@ -83,10 +84,13 @@ export function buildTimeline(
           });
       }
       const notes = patternNotes(base, item.pattern);
-      const patternStart = at;
-      const patternDuration = notes.length * beat * item.noteBeats;
-      for (let pulse = 0; pulse * beat < patternDuration - 0.000001; pulse++)
-        metronomeBeats.push(patternStart + pulse * beat);
+      if (!markKeyChanges) {
+        // The fixed one-second gap is outside the musical beat grid.
+        const patternStart = at;
+        const patternDuration = notes.length * beat * item.noteBeats;
+        for (let pulse = 0; pulse * beat < patternDuration - 0.000001; pulse++)
+          metronomeBeats.push(patternStart + pulse * beat);
+      }
       notes.forEach((midi, noteIndex) =>
         add({
           ...common,
@@ -99,6 +103,9 @@ export function buildTimeline(
       );
       if (succession < bases[exercise].length - 1 && markKeyChanges) addPause();
     });
+    if (markKeyChanges)
+      for (let pulse = 0; exerciseMusicalStart + pulse * beat < at - 0.000001; pulse++)
+        metronomeBeats.push(exerciseMusicalStart + pulse * beat);
   });
   return { events, metronomeBeats, duration: at, items, bases };
 }
