@@ -165,3 +165,28 @@ it("usa los osciladores solo si falla la carga de la muestra", async () => {
   ).toBe(true);
   piano.close();
 });
+
+it("los dos niveles del metrónomo comparten el master y siguen el volumen del piano", () => {
+  const audio = mockAudio();
+  const piano = new PianoDriver(140);
+  piano.metronomeClick(10, "background");
+  piano.metronomeClick(11, "foreground");
+  const background = audio.gains[3], foreground = audio.gains[4];
+  expect(audio.oscillators).toHaveLength(2);
+  expect(background.connect).toHaveBeenCalledWith(audio.gains[0]);
+  expect(foreground.connect).toHaveBeenCalledWith(audio.gains[0]);
+  expect(background.gain.linearRampToValueAtTime).toHaveBeenCalledWith(0.014, 10.002);
+  expect(foreground.gain.linearRampToValueAtTime).toHaveBeenCalledWith(0.28, 11.002);
+  for (const volume of [0, 100, 140, 200, 250]) {
+    const master = masterGainForVolume(volume);
+    expect(0.28 * master).toBeGreaterThanOrEqual(0.014 * master);
+    if (volume === 0) expect(0.28 * master).toBe(0);
+  }
+  piano.setVolume(200);
+  expect(audio.gains[0].gain.setTargetAtTime).toHaveBeenCalledWith(
+    masterGainForVolume(200), 1, 0.01,
+  );
+  piano.stopMetronome();
+  expect(audio.oscillators.every((source) => source.stop.mock.calls.length > 1)).toBe(true);
+  piano.close();
+});

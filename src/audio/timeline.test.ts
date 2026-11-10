@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { buildTimeline } from "./timeline";
 import { initialLibrary } from "../data/catalog";
 import { instantiate, type Direction } from "../types";
+import { makePattern } from "../music/notes";
 import {
   LEGATO_ARTICULATION,
   STACCATO_ARTICULATION,
@@ -141,6 +142,87 @@ describe("Pausa a ambos lados de cada transición", () => {
     expect(old.articulation).toBe(0.88);
   });
 });
+
+describe("Notas de ataque de las sucesiones", () => {
+  it.each([
+    ["ascendente", {
+      ...item("up"),
+      pattern: makePattern(["1", "2", "3", "4", "5"]),
+      upper: 56,
+    }],
+    ["descendente", {
+      ...item("down"),
+      pattern: makePattern(["5", "4", "3", "2", "1"]),
+      start: 53,
+      lower: 52,
+      upper: 60,
+    }],
+    ["personalizado", {
+      ...item("up"),
+      pattern: makePattern(["5", "3", "1"]),
+      upper: 56,
+    }],
+  ] as const)("transición y countdown usan la primera nota audible en %s", (_, config) => {
+    const timeline = buildTimeline([config]);
+    const starts = timeline.events.filter((event) =>
+      event.phase === "note" && event.noteIndex === 0,
+    );
+    const transition = timeline.events.filter((event) => event.phase === "transition");
+    expect(transition.slice(0, 2).map((event) => event.midi)).toEqual([
+      starts[0].midi,
+      starts[1].midi,
+    ]);
+    expect(transition[0].midi).toBe(timeline.bases[0][0] + config.pattern.semitones[0]);
+    expect(transition[1].midi).toBe(timeline.bases[0][1] + config.pattern.semitones[0]);
+    const countdown = timeline.events.slice(0, 3);
+    expect(countdown[0].reference).toBeUndefined();
+    expect(countdown[1].reference).toBeUndefined();
+    expect(countdown[2].reference).toEqual({
+      midi: starts[0].midi,
+      gate: (60 / config.bpm) * 0.7,
+    });
+    expect(countdown[2].at + countdown[2].duration).toBeCloseTo(starts[0].at, 8);
+    expect(countdown[2].at + countdown[2].reference!.gate).toBeLessThan(starts[0].at);
+  });
+
+  it("en 5-4-3-2-1 marca C4 → B3 y nunca las bases F3 → E3", () => {
+    const config = {
+      ...item("down"),
+      pattern: makePattern(["5", "4", "3", "2", "1"]),
+      start: 53,
+      lower: 52,
+      upper: 60,
+    };
+    const timeline = buildTimeline([config]);
+    expect(timeline.bases[0].slice(0, 2)).toEqual([53, 52]);
+    expect(timeline.events.filter((event) => event.phase === "transition").map((event) => event.midi))
+      .toEqual([60, 59]);
+    expect(timeline.events[2].reference?.midi).toBe(60);
+  });
+
+  it("cada ejercicio recibe su propia nota de referencia sin alargar su 3–2–1", () => {
+    const first = item("up");
+    const second = {
+      ...item("down"),
+      pattern: makePattern(["5", "4", "3", "2", "1"]),
+      start: 53,
+      lower: 52,
+      upper: 60,
+      bpm: 120,
+    };
+    const timeline = buildTimeline([first, second]);
+    for (const [exercise, config] of [first, second].entries()) {
+      const countdown = timeline.events.filter((event) =>
+        event.exercise === exercise && event.phase === "countdown",
+      );
+      const firstNote = timeline.events.find((event) =>
+        event.exercise === exercise && event.phase === "note",
+      )!;
+      expect(countdown[2].reference?.midi).toBe(firstNote.midi);
+      expect(firstNote.at - countdown[0].at).toBeCloseTo(3 * 60 / config.bpm, 8);
+    }
+  });
+});
 describe("Cuenta atrás y cambios de tonalidad configurables", () => {
   it("no deja transición ni pausa extra al pasar de ejercicio", () => {
     const first = { ...item("up"), upper: 52 };
@@ -165,8 +247,8 @@ describe("Cuenta atrás y cambios de tonalidad configurables", () => {
     });
     const first = events.find((event) => event.phase === "note")!;
     expect(first.at).toBeCloseTo(countdown[2].at + beat, 8);
-    expect(metronomeBeats[0]).toBeCloseTo(first.at, 8);
-    expect(metronomeBeats.every((at) => at >= first.at - 1e-8)).toBe(true);
+    expect(metronomeBeats[0].at).toBeCloseTo(first.at, 8);
+    expect(metronomeBeats.every(({ at }) => at >= first.at - 1e-8)).toBe(true);
   });
   it("cada ejercicio utiliza su propio tempo durante la nueva cuenta atrás", () => {
     const timeline = buildTimeline([
@@ -183,7 +265,7 @@ describe("Cuenta atrás y cambios de tonalidad configurables", () => {
       expect(countdown).toHaveLength(3);
       expect(countdown.map((event) => event.duration)).toEqual([60 / bpm, 60 / bpm, 60 / bpm]);
       expect(first.at - countdown[0].at).toBeCloseTo(3 * 60 / bpm, 8);
-      expect(timeline.metronomeBeats).toContain(first.at);
+      expect(timeline.metronomeBeats.some(({ at }) => at === first.at)).toBe(true);
     }
   });
   it.each([70, 80, 90])("apagado: un solo segundo de pausa a %i BPM", (bpm) => {
@@ -207,6 +289,32 @@ describe("Cuenta atrás y cambios de tonalidad configurables", () => {
 });
 
 describe("Pulso del metrónomo", () => {
+  it("clasifica patrón como fondo y pausa/transición como primer plano sin mover los beats", () => {
+    const timeline = buildTimeline([{ ...item("up", 0.5), bpm: 120, noteBeats: 0.5 }]);
+    const first = timeline.events.find((event) => event.phase === "note")!.at;
+    timeline.metronomeBeats.forEach((pulse, index) => {
+      expect(pulse.at).toBeCloseTo(first + index * 0.5, 8);
+      const event = timeline.events.findLast((candidate) => candidate.at <= pulse.at + 1e-8)!;
+      expect(pulse.level).toBe(event.phase === "note" ? "background" : "foreground");
+    });
+    expect(timeline.metronomeBeats.some((pulse) => pulse.level === "background")).toBe(true);
+    expect(timeline.metronomeBeats.some((pulse) => pulse.level === "foreground" &&
+      timeline.events.findLast((event) => event.at <= pulse.at + 1e-8)?.phase === "transition",
+    )).toBe(true);
+    expect(timeline.metronomeBeats.some((pulse) => pulse.level === "foreground" &&
+      timeline.events.findLast((event) => event.at <= pulse.at + 1e-8)?.phase === "rest",
+    )).toBe(true);
+    const firstTransition = timeline.events.findIndex((event) => event.phase === "transition");
+    const padding = timeline.events[firstTransition + 3];
+    expect(padding.phase).toBe("rest");
+    expect(padding.duration).toBeCloseTo(0.25);
+    // Padding is shorter than one beat: the next click lands on the next pattern.
+    const nextPattern = timeline.events[firstTransition + 4];
+    expect(nextPattern.phase).toBe("note");
+    expect(timeline.metronomeBeats.find((pulse) => Math.abs(pulse.at - nextPattern.at) < 1e-8)?.level)
+      .toBe("background");
+  });
+
   it("mantiene una rejilla por ejercicio a través de pausas y transiciones, y cambia de BPM después del nuevo 3–2–1", () => {
     const first = { ...item("up"), bpm: 80, noteBeats: 0.5 };
     const second = { ...item("up"), bpm: 110, noteBeats: 1 };
@@ -214,18 +322,18 @@ describe("Pulso del metrónomo", () => {
     for (const [exercise, bpm] of [80, 110].entries()) {
       const start = timeline.events.find((event) => event.exercise === exercise && event.phase === "note")!.at;
       const end = timeline.events.find((event) => event.exercise === exercise + 1)?.at ?? timeline.duration;
-      const beats = timeline.metronomeBeats.filter((at) => at >= start && at < end);
-      expect(beats[0]).toBeCloseTo(start);
-      beats.forEach((at, index) => expect(at).toBeCloseTo(start + index * 60 / bpm, 8));
+      const beats = timeline.metronomeBeats.filter(({ at }) => at >= start && at < end);
+      expect(beats[0].at).toBeCloseTo(start);
+      beats.forEach(({ at }, index) => expect(at).toBeCloseTo(start + index * 60 / bpm, 8));
       expect(beats.length).toBeGreaterThan(5);
     }
-    expect(timeline.metronomeBeats.some((at) => timeline.events.some((event) =>
+    expect(timeline.metronomeBeats.some(({ at }) => timeline.events.some((event) =>
       event.exercise === 0 && event.phase === "rest" && at >= event.at - 1e-8 && at < event.at + event.duration - 1e-8,
     ))).toBe(true);
-    expect(timeline.metronomeBeats.some((at) => timeline.events.some((event) =>
+    expect(timeline.metronomeBeats.some(({ at }) => timeline.events.some((event) =>
       event.exercise === 0 && event.phase === "transition" && at >= event.at - 1e-8 && at < event.at + event.duration - 1e-8,
     ))).toBe(true);
-    expect(timeline.metronomeBeats.some((at) => timeline.events.some((event) =>
+    expect(timeline.metronomeBeats.some(({ at }) => timeline.events.some((event) =>
       event.phase === "countdown" && at >= event.at && at < event.at + event.duration,
     ))).toBe(false);
   });
@@ -253,10 +361,10 @@ describe("Pulso del metrónomo", () => {
     expect(padding.phase).toBe("rest");
     expect(padding.duration).toBeCloseTo(0.5 * beat);
     expect(nextPattern.at).toBeCloseTo(start + 5 * beat);
-    expect(timeline.metronomeBeats.slice(0, 6)).toEqual(
+    expect(timeline.metronomeBeats.slice(0, 6).map(({ at }) => at)).toEqual(
       Array.from({ length: 6 }, (_, n) => start + n * beat),
     );
-    expect(timeline.metronomeBeats).toContain(nextPattern.at);
+    expect(timeline.metronomeBeats.some(({ at }) => at === nextPattern.at)).toBe(true);
   });
 
   it.each([
@@ -286,7 +394,7 @@ describe("Pulso del metrónomo", () => {
       )) {
         const position = (start.at - first.at) / beat;
         expect(position).toBeCloseTo(Math.round(position), 8);
-        expect(timeline.metronomeBeats.some((at) => Math.abs(at - start.at) < 1e-8)).toBe(true);
+        expect(timeline.metronomeBeats.some(({ at }) => Math.abs(at - start.at) < 1e-8)).toBe(true);
       }
     }
   });
@@ -326,7 +434,7 @@ describe("Pulso del metrónomo", () => {
     notes.forEach((event, index) => expect(event.at).toBeCloseTo(start + index * noteBeats * beat, 8));
     const transition = timeline.events.find((event) => event.phase === "transition")!;
     expect(transition.at).toBeCloseTo(start + (notes.length * noteBeats + 0.5) * beat, 8);
-    timeline.metronomeBeats.forEach((at, index) =>
+    timeline.metronomeBeats.forEach(({ at }, index) =>
       expect(at).toBeCloseTo(start + index * beat, 8),
     );
     for (const event of timeline.events.filter((event) => event.phase === "note" && event.noteIndex === 0))
@@ -337,8 +445,8 @@ describe("Pulso del metrónomo", () => {
     const timeline = buildTimeline([{ ...item("up"), noteBeats: 0.5 }], false);
     for (const start of timeline.events.filter((event) =>
       event.phase === "note" && event.noteIndex === 0,
-    )) expect(timeline.metronomeBeats).toContain(start.at);
-    for (const at of timeline.metronomeBeats) {
+    )) expect(timeline.metronomeBeats.some(({ at }) => at === start.at)).toBe(true);
+    for (const { at } of timeline.metronomeBeats) {
       const event = timeline.events.find((candidate) =>
         candidate.at <= at && at < candidate.at + candidate.duration,
       );
@@ -347,6 +455,6 @@ describe("Pulso del metrónomo", () => {
     const fixed = timeline.events.find((event, index) =>
       event.phase === "rest" && timeline.events[index - 1]?.phase === "note",
     )!;
-    expect(timeline.metronomeBeats.some((at) => at >= fixed.at && at < fixed.at + fixed.duration)).toBe(false);
+    expect(timeline.metronomeBeats.some(({ at }) => at >= fixed.at && at < fixed.at + fixed.duration)).toBe(false);
   });
 });

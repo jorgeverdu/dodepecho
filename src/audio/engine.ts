@@ -7,7 +7,7 @@ import {
   normalizedSampleGain,
   OUTPUT_HEADROOM_GAIN,
 } from "./volume";
-import type { MusicalEvent, Timeline } from "./timeline";
+import type { MetronomeBeat, MusicalEvent, Timeline } from "./timeline";
 import {
   loadSample,
   nearestSample,
@@ -19,7 +19,7 @@ export interface AudioDriver {
   ready(): Promise<void>;
   play(midi: number, at: number, duration: number): void;
   click(at: number): void;
-  metronomeClick(at: number): void;
+  metronomeClick(at: number, level: MetronomeBeat["level"]): void;
   stopMetronome(): void;
   stopAll(): void;
   close(): void;
@@ -143,7 +143,7 @@ export class PianoDriver implements AudioDriver {
     source.stop(at + 0.05);
     source.onended = () => this.releaseVoice(voice);
   }
-  metronomeClick(at: number) {
+  metronomeClick(at: number, level: MetronomeBeat["level"]) {
     const source = this.context.createOscillator();
     const gain = this.context.createGain();
     const voice = { source, gain, at };
@@ -152,10 +152,13 @@ export class PianoDriver implements AudioDriver {
     source.type = "triangle";
     source.frequency.value = 900;
     gain.gain.setValueAtTime(0, at);
-    gain.gain.linearRampToValueAtTime(0.028, at + 0.002);
+    gain.gain.linearRampToValueAtTime(
+      level === "background" ? 0.014 : 0.28,
+      at + 0.002,
+    );
     gain.gain.exponentialRampToValueAtTime(0.001, at + 0.03);
     source.connect(gain);
-    gain.connect(this.limiterInput);
+    gain.connect(this.master);
     source.start(at);
     source.stop(at + 0.035);
     source.onended = () => this.releaseVoice(voice);
@@ -256,7 +259,7 @@ export class PlaybackEngine {
     if (!enabled) this.driver.stopMetronome();
     const elapsed = this.snapshot().elapsed;
     this.nextBeat = this.timeline.metronomeBeats.findIndex(
-      (at) => at >= elapsed - 0.000001,
+      (pulse) => pulse.at >= elapsed - 0.000001,
     );
     if (this.nextBeat < 0) this.nextBeat = this.timeline.metronomeBeats.length;
   }
@@ -301,7 +304,7 @@ export class PlaybackEngine {
     );
     if (this.next < 0) this.next = this.timeline.events.length;
     this.nextBeat = this.timeline.metronomeBeats.findIndex(
-      (at) => at >= this.offset - 0.000001,
+      (pulse) => pulse.at >= this.offset - 0.000001,
     );
     if (this.nextBeat < 0) this.nextBeat = this.timeline.metronomeBeats.length;
     this.tick();
@@ -327,17 +330,29 @@ export class PlaybackEngine {
       // A throttled tab must never play a backlog of expired notes together.
       if (e.midi !== null && remaining > 0)
         this.driver.play(e.midi, Math.max(now, startsAt), remaining);
-      else if (e.phase === "countdown" && startsAt + 0.05 > now)
-        this.driver.click(Math.max(now, startsAt));
+      if (e.phase === "countdown") {
+        if (startsAt + 0.05 > now)
+          this.driver.click(Math.max(now, startsAt));
+        if (e.reference) {
+          const referenceRemaining = e.reference.gate - Math.max(0, now - startsAt);
+          if (referenceRemaining > 0)
+            this.driver.play(
+              e.reference.midi,
+              Math.max(now, startsAt),
+              referenceRemaining,
+            );
+        }
+      }
     }
     if (this.metronomeEnabled) {
       while (
         this.nextBeat < this.timeline.metronomeBeats.length &&
-        this.timeline.metronomeBeats[this.nextBeat] < elapsed + 0.15
+        this.timeline.metronomeBeats[this.nextBeat].at < elapsed + 0.15
       ) {
-        const startsAt = this.timeline.metronomeBeats[this.nextBeat++] + this.origin;
+        const pulse = this.timeline.metronomeBeats[this.nextBeat++];
+        const startsAt = pulse.at + this.origin;
         if (startsAt + 0.035 > now)
-          this.driver.metronomeClick(Math.max(now, startsAt));
+          this.driver.metronomeClick(Math.max(now, startsAt), pulse.level);
       }
     }
     this.emit();

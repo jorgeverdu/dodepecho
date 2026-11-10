@@ -3,6 +3,7 @@ import { PlaybackEngine, type AudioDriver } from "./engine";
 import { buildTimeline } from "./timeline";
 import { initialLibrary } from "../data/catalog";
 import { instantiate, type RoutineItem } from "../types";
+import { makePattern } from "../music/notes";
 afterEach(() => vi.useRealTimers());
 function fixture(overrides: Partial<RoutineItem> = {}) {
   vi.useFakeTimers();
@@ -167,6 +168,46 @@ describe("Reproducción", () => {
     expect(driver.click).not.toHaveBeenCalled();
     engine.dispose();
   });
+  it("marca con piano el 1 al iniciar, reiniciar y pasar a un ejercicio descendente", async () => {
+    const { driver } = fixture();
+    const first = { ...instantiate(initialLibrary().exercises[0]), upper: 53, bpm: 80 };
+    const second = {
+      ...instantiate(initialLibrary().exercises[0]),
+      pattern: makePattern(["5", "4", "3", "2", "1"]),
+      direction: "down" as const,
+      start: 53,
+      lower: 52,
+      upper: 60,
+      bpm: 120,
+    };
+    const timeline = buildTimeline([first, second]);
+    const engine = new PlaybackEngine(timeline, driver, vi.fn());
+    const reference = (exercise: number) => timeline.events.find((event) =>
+      event.exercise === exercise && event.count === 1,
+    )!;
+    const expectReference = (exercise: number) => {
+      const event = reference(exercise);
+      expect(vi.mocked(driver.play).mock.calls).toHaveLength(1);
+      expect(vi.mocked(driver.play).mock.calls[0][0]).toBe(event.reference!.midi);
+      expect(vi.mocked(driver.play).mock.calls[0][2]).toBeCloseTo(event.reference!.gate, 8);
+      expect(driver.click).toHaveBeenCalledTimes(3);
+    };
+    await engine.play();
+    await vi.advanceTimersByTimeAsync(2 * 60 / first.bpm * 1000 + 100);
+    expectReference(0);
+    vi.mocked(driver.play).mockClear();
+    vi.mocked(driver.click).mockClear();
+    await engine.seekExercise(0);
+    await vi.advanceTimersByTimeAsync(2 * 60 / first.bpm * 1000 + 100);
+    expectReference(0);
+    vi.mocked(driver.play).mockClear();
+    vi.mocked(driver.click).mockClear();
+    await engine.seekExercise(1);
+    await vi.advanceTimersByTimeAsync(2 * 60 / second.bpm * 1000 + 100);
+    expectReference(1);
+    expect(reference(1).reference!.midi).toBe(60);
+    engine.dispose();
+  });
 });
 
 describe("Metrónomo en el scheduler", () => {
@@ -182,8 +223,13 @@ describe("Metrónomo en el scheduler", () => {
     await enabled.play();
     const enabledOrigin = driver.now() + 0.06;
     await vi.advanceTimersByTimeAsync((timeline.duration + 0.2) * 1000);
-    expect(vi.mocked(driver.metronomeClick).mock.calls.map(([at]) => at - enabledOrigin))
-      .toEqual(timeline.metronomeBeats.map((at) => expect.closeTo(at, 5)));
+    expect(vi.mocked(driver.metronomeClick).mock.calls.map(([at, level]) => ({
+      at: at - enabledOrigin,
+      level,
+    }))).toEqual(timeline.metronomeBeats.map(({ at, level }) => ({
+      at: expect.closeTo(at, 5),
+      level,
+    })));
     expect(origin).toBeLessThan(enabledOrigin);
     enabled.dispose();
   });
@@ -258,7 +304,7 @@ describe("Metrónomo en el scheduler", () => {
     expect(resumed.length).toBeGreaterThan(0);
     for (const [at] of resumed)
       expect(timeline.metronomeBeats.some((beat) =>
-        Math.abs(at - origin - beat) < 0.00001,
+        Math.abs(at - origin - beat.at) < 0.00001,
       )).toBe(true);
     engine.dispose();
   });
@@ -277,7 +323,10 @@ describe("Scheduler con pausa–transición–pausa", () => {
       const origin = driver.now() + 0.06;
       await engine.play();
       await vi.advanceTimersByTimeAsync((timeline.duration + 0.2) * 1000);
-      const audible = timeline.events.filter((e) => e.midi !== null);
+      const audible = timeline.events.flatMap((e) => [
+        ...(e.reference ? [{ midi: e.reference.midi, at: e.at, gate: e.reference.gate }] : []),
+        ...(e.midi !== null ? [{ midi: e.midi, at: e.at, gate: e.gate }] : []),
+      ]);
       const calls = vi.mocked(driver.play).mock.calls;
       expect(calls).toHaveLength(audible.length);
       audible.forEach((e, i) => {

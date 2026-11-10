@@ -12,10 +12,15 @@ export interface MusicalEvent {
   noteIndex: number;
   phase: "countdown" | "note" | "transition" | "rest";
   count?: number;
+  reference?: { midi: number; gate: number };
+}
+export interface MetronomeBeat {
+  at: number;
+  level: "background" | "foreground";
 }
 export interface Timeline {
   events: MusicalEvent[];
-  metronomeBeats: number[];
+  metronomeBeats: MetronomeBeat[];
   duration: number;
   items: RoutineItem[];
   bases: number[][];
@@ -26,7 +31,7 @@ export function buildTimeline(
 ): Timeline {
   if (!items.length) throw new Error("Añade un ejercicio a la rutina.");
   const events: MusicalEvent[] = [];
-  const metronomeBeats: number[] = [];
+  const metronomeBeats: MetronomeBeat[] = [];
   let at = 0;
   const bases = items.map((item) => successionBases(item, item.pattern));
   const add = (event: Omit<MusicalEvent, "at">) => {
@@ -35,6 +40,7 @@ export function buildTimeline(
   };
   items.forEach((item, exercise) => {
     const beat = 60 / item.bpm;
+    const attackNote = (base: number) => base + item.pattern.semitones[0];
     for (let count = 3; count >= 1; count--)
       add({
         duration: beat,
@@ -46,6 +52,9 @@ export function buildTimeline(
         noteIndex: -1,
         phase: "countdown",
         count,
+        ...(count === 1
+          ? { reference: { midi: attackNote(bases[exercise][0]), gate: beat * 0.7 } }
+          : {}),
       });
     const exerciseMusicalStart = at;
     const fixedSilentGaps: { start: number; end: number }[] = [];
@@ -64,7 +73,7 @@ export function buildTimeline(
       };
       if (succession > 0) {
         if (markKeyChanges) {
-          for (const midi of [bases[exercise][succession - 1], base])
+          for (const midi of [attackNote(bases[exercise][succession - 1]), attackNote(base)])
             add({
               ...common,
               duration: beat * 0.5,
@@ -116,11 +125,21 @@ export function buildTimeline(
       );
       if (succession < bases[exercise].length - 1 && markKeyChanges) addPause();
     });
+    let eventCursor = events.findIndex(
+      (event) => event.exercise === exercise && event.phase === "note",
+    );
     for (let pulse = 0; exerciseMusicalStart + pulse * beat < at - 0.000001; pulse++) {
       const pulseAt = exerciseMusicalStart + pulse * beat;
       if (fixedSilentGaps.some(({ start, end }) => pulseAt >= start && pulseAt < end))
         continue;
-      metronomeBeats.push(pulseAt);
+      while (
+        events[eventCursor + 1]?.exercise === exercise &&
+        events[eventCursor + 1].at <= pulseAt + 1e-8
+      ) eventCursor++;
+      metronomeBeats.push({
+        at: pulseAt,
+        level: events[eventCursor].phase === "note" ? "background" : "foreground",
+      });
     }
   });
   return { events, metronomeBeats, duration: at, items, bases };
